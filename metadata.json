@@ -1,0 +1,6 @@
+{
+  "name": "StudyBuddy",
+  "description": "Futuristic AI school assistant with step-by-step topic explanations, homework scanner, quizzes, and voice support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

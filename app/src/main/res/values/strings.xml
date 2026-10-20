@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">StudyBuddy</string>
+    <string name="welcome_title">Welcome to StudyBuddy</string>
+    <string name="welcome_subtitle">Your futuristic AI-powered school tutor &amp; homework assistant</string>
+    <string name="btn_get_started">Get Started</string>
+    <string name="btn_play_answer">Play Answer</string>
+    <string name="btn_copy_text">Copy Text</string>
+    <string name="btn_stop_voice">Stop Voice</string>
+</resources>
