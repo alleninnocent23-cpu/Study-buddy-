@@ -1,0 +1,75 @@
+
+name: Build StudyBuddy APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find Android project
+        id: project
+        shell: bash
+        run: |
+          SETTINGS=$(find . -type f \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -not -path './.git/*' | head -n 1)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: No settings.gradle found."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project: $PROJECT_DIR"
+
+      - name: Create required debug keystore
+        run: |
+          keytool -genkeypair -noprompt \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Verify debug keystore
+        run: |
+          ls -l "$GITHUB_WORKSPACE/debug.keystore"
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build debug APK
+        run: |
+          gradle -p "${{ steps.project.outputs.dir }}" assembleDebug
+
+      - name: Upload StudyBuddy APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudyBuddy-APK
+          path: '**/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
+          retention-days: 7
