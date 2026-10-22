@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.CameraCaptureDialog
 import com.example.ui.components.EducationalDiagramView
 import com.example.ui.components.ExplanationControlsBar
 import com.example.ui.components.GlassCard
@@ -83,6 +84,7 @@ fun HomeworkScannerScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     var customNote by remember { mutableStateOf("") }
+    var showCameraCapture by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -201,7 +203,7 @@ fun HomeworkScannerScreen(
                         }
 
                         OutlinedButton(
-                            onClick = { cameraLauncher.launch(null) },
+                            onClick = { showCameraCapture = true },
                             shape = RoundedCornerShape(8.dp),
                             border = ButtonDefaults.outlinedButtonBorder.copy(
                                 brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
@@ -370,4 +372,12 @@ fun HomeworkScannerScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
     }
+
+    CameraCaptureDialog(
+        isOpen = showCameraCapture,
+        onDismiss = { showCameraCapture = false },
+        onPhotoCaptured = { bitmap ->
+            onImageSelected(bitmap)
+        }
+    )
 }

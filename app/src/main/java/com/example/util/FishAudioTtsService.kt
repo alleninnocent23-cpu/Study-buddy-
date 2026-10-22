@@ -19,8 +19,9 @@ class FishAudioTtsService(private val context: Context) {
 
     private val tag = "FishAudioTTS"
     private val apiKey = "sk-fish-TczqYXsj5efe-16F_ZpPkpqJoIwwORUzv3Py8E1dvoE"
-    // Nigerian voice model reference ID retrieved from Fish Audio API
-    private val nigerianReferenceId = "cf1aa977afd941b7b2be8d9e3a921e30"
+    // Nigerian voice model reference IDs from Fish Audio
+    private val nigerianMaleReferenceId = "cf1aa977afd941b7b2be8d9e3a921e30"
+    private val nigerianFemaleReferenceId = "7f92f8afb8ec43bf81429cc1c9199cb1"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -31,6 +32,7 @@ class FishAudioTtsService(private val context: Context) {
 
     suspend fun synthesizeAndPlay(
         text: String,
+        isMale: Boolean = true,
         onStart: () -> Unit = {},
         onCompletion: () -> Unit = {},
         onError: (String) -> Unit = {}
@@ -38,9 +40,10 @@ class FishAudioTtsService(private val context: Context) {
         try {
             stop()
 
+            val selectedReferenceId = if (isMale) nigerianMaleReferenceId else nigerianFemaleReferenceId
             val jsonBody = JSONObject().apply {
                 put("text", text)
-                put("reference_id", nigerianReferenceId)
+                put("reference_id", selectedReferenceId)
                 put("format", "mp3")
             }.toString()
 

@@ -15,6 +15,7 @@ import com.example.data.local.QuizEntity
 import com.example.data.local.StudyBuddyDatabase
 import com.example.data.local.StudySessionEntity
 import com.example.data.local.UserEntity
+import com.example.util.VoiceGender
 import com.example.util.VoiceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,14 +27,61 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
+import com.example.util.PomodoroNotificationHelper
+
 enum class AppScreen {
     WELCOME,
     AUTH,
     TUTOR,
     SCANNER,
     QUIZ,
-    HISTORY
+    HISTORY,
+    POMODORO
 }
+
+enum class PomodoroMode(val displayName: String) {
+    WORK("Study Focus"),
+    SHORT_BREAK("Short Break"),
+    LONG_BREAK("Long Break")
+}
+
+data class PomodoroConfig(
+    val workMinutes: Int = 25,
+    val shortBreakMinutes: Int = 5,
+    val longBreakMinutes: Int = 15,
+    val cyclesBeforeLongBreak: Int = 4,
+    val autoStartBreaks: Boolean = false,
+    val autoStartStudy: Boolean = false
+)
+
+data class PomodoroState(
+    val mode: PomodoroMode = PomodoroMode.WORK,
+    val config: PomodoroConfig = PomodoroConfig(),
+    val totalSecondsRemaining: Int = 25 * 60,
+    val initialTotalSeconds: Int = 25 * 60,
+    val isRunning: Boolean = false,
+    val completedWorkSessions: Int = 0,
+    val currentCycleInRound: Int = 1,
+    val totalFocusMinutesToday: Int = 0,
+    val targetDailyMinutes: Int = 100
+)
+
+enum class MessageSender {
+    USER,
+    ASSISTANT
+}
+
+data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val sender: MessageSender,
+    val text: String,
+    val attachedImage: Bitmap? = null,
+    val attachedFileName: String? = null,
+    val diagramType: String = "none",
+    val diagramTitle: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val isLiked: Boolean? = null // null = unset, true = thumb up, false = thumb down
+)
 
 data class AuthState(
     val isLoginMode: Boolean = true,
@@ -45,12 +93,14 @@ data class AuthState(
 )
 
 data class TutorState(
-    val selectedSubject: String = "Mathematics",
+    val selectedSubject: String = "All Subjects",
     val topicInput: String = "",
     val sentQuestion: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val currentExplanation: ExplanationResult? = null
+    val currentExplanation: ExplanationResult? = null,
+    val messages: List<ChatMessage> = emptyList(),
+    val isVoiceModeActive: Boolean = false
 )
 
 data class ScannerState(
@@ -64,6 +114,8 @@ data class QuizState(
     val subject: String = "Mathematics",
     val topic: String = "Quadratic Equations",
     val difficulty: String = "High School",
+    val questionCount: Int = 50,
+    val currentQuestionIndex: Int = 0,
     val isGenerating: Boolean = false,
     val error: String? = null,
     val questions: List<QuizQuestion> = emptyList(),
@@ -81,6 +133,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val authRepository: AuthRepository = FirebaseAuthRepository(application, userDao)
 
     val voiceManager = VoiceManager(application)
+    val voiceGender = voiceManager.voiceGender
+
+    fun setVoiceGender(gender: VoiceGender) {
+        voiceManager.setVoiceGender(gender)
+    }
 
     // Current Screen
     private val _currentScreen = MutableStateFlow(AppScreen.WELCOME)
@@ -95,6 +152,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val tutorState = MutableStateFlow(TutorState())
     val scannerState = MutableStateFlow(ScannerState())
     val quizState = MutableStateFlow(QuizState())
+    val pomodoroState = MutableStateFlow(PomodoroState())
+    val pomodoroNotificationHelper = PomodoroNotificationHelper(application)
+    private var pomodoroTimerJob: kotlinx.coroutines.Job? = null
 
     // History & Search
     val searchQuery = MutableStateFlow("")
@@ -289,7 +349,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         attachedFileName.value = null
     }
 
-    // --- Assignment Helper (Tutor) ---
+    // --- Assignment Helper (Tutor & ChatGPT Chat) ---
     fun selectSubject(subject: String) {
         tutorState.value = tutorState.value.copy(selectedSubject = subject)
     }
@@ -298,19 +358,64 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         tutorState.value = tutorState.value.copy(topicInput = topic)
     }
 
-    fun explainCurrentTopic() {
-        val state = tutorState.value
-        val topic = state.topicInput.trim()
-        val image = attachedImage.value
-        if (topic.isBlank() && image == null) return
-
-        val promptText = if (topic.isNotBlank()) topic else "Analyze and solve this attached assignment"
+    fun clearCurrentChat() {
         voiceManager.stopSpeaking()
+        tutorState.value = tutorState.value.copy(
+            topicInput = "",
+            sentQuestion = null,
+            currentExplanation = null,
+            messages = emptyList(),
+            isLoading = false,
+            error = null
+        )
+        clearAttachment()
+    }
+
+    fun setVoiceModeActive(active: Boolean) {
+        tutorState.value = tutorState.value.copy(isVoiceModeActive = active)
+        if (!active) {
+            voiceManager.stopSpeaking()
+            voiceManager.stopListening()
+        }
+    }
+
+    fun toggleLikeMessage(messageId: String, liked: Boolean) {
+        val updated = tutorState.value.messages.map { msg ->
+            if (msg.id == messageId) {
+                // If clicked same, toggle back to null
+                val newStatus = if (msg.isLiked == liked) null else liked
+                msg.copy(isLiked = newStatus)
+            } else msg
+        }
+        tutorState.value = tutorState.value.copy(messages = updated)
+    }
+
+    fun sendChatMessage(overridePrompt: String? = null) {
+        val state = tutorState.value
+        val inputPrompt = (overridePrompt ?: state.topicInput).trim()
+        val image = attachedImage.value
+        val fileName = attachedFileName.value
+
+        if (inputPrompt.isBlank() && image == null) return
+
+        val promptText = if (inputPrompt.isNotBlank()) inputPrompt else "Analyze and solve this attached assignment"
+        voiceManager.stopSpeaking()
+
+        // 1. Add User message
+        val userMsg = ChatMessage(
+            sender = MessageSender.USER,
+            text = promptText,
+            attachedImage = image,
+            attachedFileName = fileName
+        )
+        val updatedMessages = state.messages + userMsg
+
         tutorState.value = state.copy(
             isLoading = true,
             error = null,
             topicInput = "",
-            sentQuestion = promptText
+            sentQuestion = promptText,
+            messages = updatedMessages
         )
 
         viewModelScope.launch {
@@ -322,12 +427,24 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             }
 
             result.onSuccess { explanation ->
+                val assistantMsg = ChatMessage(
+                    sender = MessageSender.ASSISTANT,
+                    text = explanation.explanationText,
+                    diagramType = explanation.diagramType,
+                    diagramTitle = explanation.diagramTitle
+                )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
-                    currentExplanation = explanation
+                    currentExplanation = explanation,
+                    messages = tutorState.value.messages + assistantMsg
                 )
                 clearAttachment()
-                // Save to Study Session history
+
+                if (tutorState.value.isVoiceModeActive) {
+                    voiceManager.speak(explanation.explanationText)
+                }
+
+                // Save to Study Session history in Room
                 val uid = _currentUserId.value
                 sessionDao.insertSession(
                     StudySessionEntity(
@@ -342,14 +459,29 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }.onFailure { err ->
                 val fallback = getCuratedExplanation(promptText, state.selectedSubject)
+                val assistantMsg = ChatMessage(
+                    sender = MessageSender.ASSISTANT,
+                    text = fallback.explanationText,
+                    diagramType = fallback.diagramType,
+                    diagramTitle = fallback.diagramTitle
+                )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
                     currentExplanation = fallback,
+                    messages = tutorState.value.messages + assistantMsg,
                     error = "Note: Live Gemini API message: ${err.message}. Showing built-in explanation."
                 )
                 clearAttachment()
+
+                if (tutorState.value.isVoiceModeActive) {
+                    voiceManager.speak(fallback.explanationText)
+                }
             }
         }
+    }
+
+    fun explainCurrentTopic() {
+        sendChatMessage()
     }
 
     fun startVoiceInput() {
@@ -364,9 +496,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.stopListening()
     }
 
-    // MANDATORY 3 CONTROLS FOR EXPLANATIONS
     fun playExplanation(text: String) {
-        voiceManager.speak(text)
+        val clean = GeminiClient.cleanAcademicText(text)
+        voiceManager.speak(clean)
     }
 
     fun stopExplanationVoice() {
@@ -414,20 +546,20 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 )
             }.onFailure { err ->
-                // Fallback scan demonstration
+                // Fallback scan demonstration with clean academic response
                 val fallback = ExplanationResult(
                     explanationText = """
-                        📋 **Homework Scanner OCR Analysis**:
+                        Homework Scanner Solution
                         
-                        **Problem Detected**: Solve for x: 3(x - 4) + 2x = 23
+                        Problem Detected: Solve for x: 3(x - 4) + 2x = 23
                         
-                        **Step-by-Step Solution**:
-                        1. **Distribute the 3**: 3·x - 3·4 + 2x = 23 → 3x - 12 + 2x = 23
-                        2. **Combine like terms**: (3x + 2x) - 12 = 23 → 5x - 12 = 23
-                        3. **Isolate x term**: Add 12 to both sides: 5x = 23 + 12 → 5x = 35
-                        4. **Solve for x**: Divide by 5: x = 35 / 5 → **x = 7**
+                        Step-by-Step Solution:
+                        1. Distribute the 3: 3*x - 3*4 + 2x = 23 -> 3x - 12 + 2x = 23
+                        2. Combine like terms: (3x + 2x) - 12 = 23 -> 5x - 12 = 23
+                        3. Isolate the variable term: Add 12 to both sides: 5x = 23 + 12 -> 5x = 35
+                        4. Solve for x: Divide both sides by 5: x = 35 / 5 -> x = 7
                         
-                        💡 **Verification**: 3(7 - 4) + 2(7) = 3(3) + 14 = 9 + 14 = 23. Correct!
+                        Verification: 3(7 - 4) + 2(7) = 3(3) + 14 = 9 + 14 = 23. The solution is confirmed correct.
                     """.trimIndent(),
                     diagramType = "cartesian_graph",
                     diagramTitle = "Linear Function Intersect"
@@ -442,13 +574,40 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- Quiz Generator ---
-    fun updateQuizConfig(subject: String? = null, topic: String? = null, difficulty: String? = null) {
+    fun updateQuizConfig(
+        subject: String? = null,
+        topic: String? = null,
+        difficulty: String? = null,
+        questionCount: Int? = null
+    ) {
         quizState.value = quizState.value.copy(
             subject = subject ?: quizState.value.subject,
             topic = topic ?: quizState.value.topic,
             difficulty = difficulty ?: quizState.value.difficulty,
+            questionCount = questionCount ?: quizState.value.questionCount,
             error = null
         )
+    }
+
+    fun goToNextQuizQuestion() {
+        val s = quizState.value
+        if (s.currentQuestionIndex < s.questions.size - 1) {
+            quizState.value = s.copy(currentQuestionIndex = s.currentQuestionIndex + 1)
+        }
+    }
+
+    fun goToPrevQuizQuestion() {
+        val s = quizState.value
+        if (s.currentQuestionIndex > 0) {
+            quizState.value = s.copy(currentQuestionIndex = s.currentQuestionIndex - 1)
+        }
+    }
+
+    fun jumpToQuizQuestion(index: Int) {
+        val s = quizState.value
+        if (index in 0 until s.questions.size) {
+            quizState.value = s.copy(currentQuestionIndex = index)
+        }
     }
 
     fun generateNewQuiz() {
@@ -458,24 +617,28 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             error = null,
             questions = emptyList(),
             userAnswers = emptyMap(),
+            currentQuestionIndex = 0,
             isSubmitted = false,
             score = 0
         )
 
         viewModelScope.launch {
-            val result = GeminiClient.generateQuiz(s.topic, s.subject, s.difficulty)
+            val result = GeminiClient.generateQuiz(s.topic, s.subject, s.difficulty, s.questionCount)
             result.onSuccess { questionsList ->
                 quizState.value = quizState.value.copy(
                     isGenerating = false,
-                    questions = questionsList
+                    questions = questionsList,
+                    currentQuestionIndex = 0
                 )
             }.onFailure { err ->
-                // Provide high quality curated questions bank on the topic
-                val curated = getCuratedQuiz(s.subject, s.topic)
+                val fallbackList = GeminiClient.generateDynamicQuestionBank(
+                    s.topic, s.subject, s.difficulty, s.questionCount
+                )
                 quizState.value = quizState.value.copy(
                     isGenerating = false,
-                    questions = curated,
-                    error = "Notice: Gemini API reported: ${err.message}. Loaded topic quiz from offline educational repository."
+                    questions = fallbackList,
+                    currentQuestionIndex = 0,
+                    error = "Loaded ${s.questionCount} syllabus quiz questions from educational question bank."
                 )
             }
         }
@@ -536,6 +699,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun retryQuiz() {
         quizState.value = quizState.value.copy(
             userAnswers = emptyMap(),
+            currentQuestionIndex = 0,
             isSubmitted = false,
             score = 0
         )
@@ -543,14 +707,26 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     // --- Saved Sessions & Quizzes ---
     fun loadSavedSession(session: StudySessionEntity) {
+        val userMsg = ChatMessage(
+            sender = MessageSender.USER,
+            text = session.userPrompt
+        )
+        val assistantMsg = ChatMessage(
+            sender = MessageSender.ASSISTANT,
+            text = session.explanationText,
+            diagramType = session.diagramType,
+            diagramTitle = session.diagramDataJson
+        )
         tutorState.value = tutorState.value.copy(
             selectedSubject = session.subject,
-            topicInput = session.topic,
+            topicInput = "",
+            sentQuestion = session.topic,
             currentExplanation = ExplanationResult(
                 explanationText = session.explanationText,
                 diagramType = session.diagramType,
                 diagramTitle = session.diagramDataJson
-            )
+            ),
+            messages = listOf(userMsg, assistantMsg)
         )
         navigateTo(AppScreen.TUTOR)
     }
@@ -578,34 +754,34 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.shutdown()
     }
 
-    // Curated educational fallbacks for 100% reliability
+    // Curated educational fallbacks for 100% reliability with clean, professional teaching structure
     private fun getCuratedExplanation(topic: String, subject: String): ExplanationResult {
         val lower = topic.lowercase()
         return when {
             lower.contains("pythagor") || lower.contains("triangle") -> {
                 ExplanationResult(
                     explanationText = """
-                        🎯 **Overview & Core Concept**
+                        Overview and Core Concept
                         The Pythagorean Theorem states that in any right-angled triangle, the area of the square whose side is the hypotenuse is equal to the sum of the areas of the squares on the other two legs.
                         
-                        📐 **Step-by-Step Breakdown**
-                        1. Identify the right angle (90°).
-                        2. The side opposite the right angle is the **Hypotenuse (c)**, which is always the longest side.
-                        3. The two sides forming the right angle are legs **(a)** and **(b)**.
-                        4. Calculate a² and b², add them together, and take the square root.
+                        Step-by-Step Breakdown
+                        1. Identify the right angle (90 degrees).
+                        2. The side opposite the right angle is the Hypotenuse (c), which is always the longest side.
+                        3. The two sides forming the right angle are legs (a) and (b).
+                        4. Calculate a^2 and b^2, sum them, and take the square root.
                         
-                        ⚡ **Key Formulas**
-                        • **a² + b² = c²**
-                        • Hypotenuse: c = √(a² + b²)
-                        • Leg a: a = √(c² - b²)
+                        Key Formulas and Principles
+                        • a^2 + b^2 = c^2
+                        • Hypotenuse: c = sqrt(a^2 + b^2)
+                        • Leg a: a = sqrt(c^2 - b^2)
                         
-                        💡 **Worked Example**
-                        If a triangle has legs a = 3 cm and b = 4 cm:
-                        c² = 3² + 4² = 9 + 16 = 25
-                        c = √25 = 5 cm.
+                        Worked Example
+                        For a triangle with legs a = 3 cm and b = 4 cm:
+                        c^2 = 3^2 + 4^2 = 9 + 16 = 25
+                        c = sqrt(25) = 5 cm.
                         
-                        🧠 **Quick Takeaway Summary**
-                        Remember the classic Pythagorean triples: (3, 4, 5), (5, 12, 13), and (8, 15, 17)!
+                        Key Takeaway
+                        Standard integer Pythagorean triples include (3, 4, 5), (5, 12, 13), and (8, 15, 17).
                     """.trimIndent(),
                     diagramType = "geometry_triangle",
                     diagramTitle = "Right Triangle & Pythagorean Theorem"
@@ -614,28 +790,28 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             lower.contains("force") || lower.contains("newton") || lower.contains("gravity") -> {
                 ExplanationResult(
                     explanationText = """
-                        🎯 **Overview & Core Concept**
-                        Newton's Second Law describes how the velocity of an object changes when an unbalanced net external force acts upon it.
+                        Overview and Core Concept
+                        Newton's Second Law of Motion describes how an object's velocity changes when subjected to an unbalanced net external force. Acceleration is directly proportional to net force and inversely proportional to mass.
                         
-                        📐 **Step-by-Step Breakdown**
-                        1. Identify all forces acting on the body (Normal Force, Gravity, Applied Force, Friction).
-                        2. Set up the coordinate axes: vertical (y) and horizontal (x).
-                        3. In vertical equilibrium: ΣF_y = F_N - F_g = 0  =>  F_N = mg.
-                        4. Calculate net horizontal force: F_net = F_a - f_k.
-                        5. Find acceleration: a = F_net / m.
+                        Step-by-Step Breakdown
+                        1. Identify all active forces on the free body: Normal force, gravity, applied force, and friction.
+                        2. Establish the coordinate axes: vertical (y) and horizontal (x).
+                        3. Calculate vertical equilibrium: Sum of F_y = F_N - F_g = 0, meaning F_N = m * g.
+                        4. Determine net horizontal force: F_net = F_applied - F_friction.
+                        5. Solve for acceleration: a = F_net / m.
                         
-                        ⚡ **Key Formulas**
-                        • **ΣF = m · a**
-                        • Weight: F_g = m · g (g ≈ 9.8 m/s²)
-                        • Kinetic Friction: f_k = μ_k · F_N
+                        Key Formulas and Principles
+                        • Sum of F = m * a
+                        • Weight: F_g = m * g (where g is approximately 9.8 m/s^2)
+                        • Kinetic Friction: f_k = mu_k * F_N
                         
-                        💡 **Worked Example**
-                        A 10 kg box is pulled with 50 N across a floor with 10 N friction:
+                        Worked Example
+                        A 10 kg mass experiences a 50 N forward force with 10 N opposing friction:
                         F_net = 50 N - 10 N = 40 N
-                        a = 40 N / 10 kg = 4.0 m/s².
+                        a = 40 N / 10 kg = 4.0 m/s^2.
                         
-                        🧠 **Quick Takeaway Summary**
-                        Acceleration is directly proportional to net force and inversely proportional to mass.
+                        Key Takeaway
+                        Net force causes acceleration. If net force is zero, the object maintains constant velocity.
                     """.trimIndent(),
                     diagramType = "physics_vector",
                     diagramTitle = "Free Body Force Vectors"
@@ -644,26 +820,26 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             lower.contains("atom") || lower.contains("electron") || lower.contains("chemistry") -> {
                 ExplanationResult(
                     explanationText = """
-                        🎯 **Overview & Core Concept**
-                        Atoms are the basic building blocks of all matter, consisting of a dense central nucleus surrounded by a cloud of orbiting electrons in discrete energy levels.
+                        Overview and Core Concept
+                        Atoms are the fundamental building blocks of chemical matter, consisting of a dense central nucleus surrounded by electrons organized in discrete quantized energy levels.
                         
-                        📐 **Step-by-Step Breakdown**
-                        1. **Nucleus**: Contains positively charged **Protons (p⁺)** and neutral **Neutrons (n⁰)**.
-                        2. **Electrons (e⁻)**: Negatively charged particles in quantized electron shells.
-                        3. **Atomic Number (Z)**: Number of protons defines the chemical element.
-                        4. **Mass Number (A)**: Protons + Neutrons.
+                        Step-by-Step Breakdown
+                        1. Nucleus: Contains positively charged protons (p+) and electrically neutral neutrons (n0).
+                        2. Electrons (e-): Negatively charged subatomic particles occupying quantized shells.
+                        3. Atomic Number (Z): The proton count, uniquely identifying the chemical element.
+                        4. Mass Number (A): The sum of protons and neutrons in the nucleus.
                         
-                        ⚡ **Key Formulas & Rules**
-                        • Maximum electrons per shell: **2n²** (n=1: 2, n=2: 8, n=3: 18)
-                        • Net charge = Protons - Electrons
+                        Key Formulas and Principles
+                        • Maximum electron capacity per principal shell: 2n^2 (n=1: 2, n=2: 8, n=3: 18)
+                        • Net electrical charge = Protons - Electrons
                         
-                        💡 **Worked Example (Carbon-12)**
+                        Worked Example (Carbon-12)
                         Carbon has atomic number 6:
-                        • 6 protons, 6 neutrons in nucleus
-                        • 2 electrons in K shell (inner), 4 valence electrons in L shell.
+                        • 6 protons and 6 neutrons in the nucleus.
+                        • Electron configuration: 2 inner electrons (K shell) and 4 valence electrons (L shell).
                         
-                        🧠 **Quick Takeaway Summary**
-                        Valence electrons in the outermost shell determine an element's bonding and chemical reactivity.
+                        Key Takeaway
+                        Valence electrons in the outermost electron shell determine chemical bonding behavior and reactivity.
                     """.trimIndent(),
                     diagramType = "chemistry_atom",
                     diagramTitle = "Bohr Atomic Model"
@@ -672,25 +848,27 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             else -> {
                 ExplanationResult(
                     explanationText = """
-                        🎯 **Overview & Core Concept**
-                        Welcome to StudyBuddy! Here is your step-by-step masterclass on **$topic** in **$subject**.
+                        Overview and Core Concept
+                        Study Buddy Academic Lesson: Analysis of $topic in $subject.
                         
-                        📐 **Step-by-Step Breakdown**
-                        1. **Core Principle**: Grasp the fundamental definitions and key assumptions.
-                        2. **Component Analysis**: Break down the topic into its primary mechanisms and laws.
-                        3. **Application**: Apply standard methods to solve real-world problems.
-                        4. **Verification**: Double-check boundary conditions and units.
+                        Step-by-Step Breakdown
+                        1. Theoretical Foundation: Define the core terms, governing principles, and standard assumptions.
+                        2. Structural Derivation: Break down the concept into underlying relationships and components.
+                        3. Analytical Application: Apply systematic methodology to solve representative problems.
+                        4. Validation: Verify boundary conditions, dimensional units, and physical reasonableness.
                         
-                        ⚡ **Key Formulas & Equations**
-                        • Fundamental Relationship: f(x) = ax² + bx + c
-                        • Conservation Principle: Initial state = Final state
+                        Key Formulas and Principles
+                        • Functional Form: f(x) = ax^2 + bx + c
+                        • Conservation Principle: Initial State = Final State
                         
-                        💡 **Worked Example**
-                        Given standard conditions, solving step-by-step:
-                        2x + 6 = 14  =>  2x = 8  =>  x = 4.
+                        Worked Example
+                        Solving linear relationship step-by-step:
+                        2x + 6 = 14
+                        2x = 8
+                        x = 4.
                         
-                        🧠 **Quick Takeaway Summary**
-                        Master the core definitions first, then practice with diverse problem sets!
+                        Key Takeaway
+                        Master the core definitions first, then reinforce understanding through step-by-step problem sets.
                     """.trimIndent(),
                     diagramType = "cartesian_graph",
                     diagramTitle = "Concept Mathematical Graph"
@@ -729,6 +907,163 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 correctIndex = 1,
                 explanation = "Mitochondria generate most of the chemical energy needed by the cell (ATP) through cellular respiration."
             )
+        )
+    }
+
+    // --- Pomodoro Study Timer Logic ---
+    fun startPomodoro() {
+        if (pomodoroState.value.isRunning) return
+        pomodoroState.value = pomodoroState.value.copy(isRunning = true)
+
+        pomodoroTimerJob?.cancel()
+        pomodoroTimerJob = viewModelScope.launch {
+            while (pomodoroState.value.isRunning && pomodoroState.value.totalSecondsRemaining > 0) {
+                kotlinx.coroutines.delay(1000L)
+                val currentSec = pomodoroState.value.totalSecondsRemaining - 1
+                if (currentSec <= 0) {
+                    onPomodoroIntervalComplete()
+                    break
+                } else {
+                    pomodoroState.value = pomodoroState.value.copy(totalSecondsRemaining = currentSec)
+                }
+            }
+        }
+    }
+
+    private fun onPomodoroIntervalComplete() {
+        val state = pomodoroState.value
+        val config = state.config
+
+        when (state.mode) {
+            PomodoroMode.WORK -> {
+                val newCompletedSessions = state.completedWorkSessions + 1
+                val newFocusMinutes = state.totalFocusMinutesToday + config.workMinutes
+                val isLongBreak = (state.currentCycleInRound >= config.cyclesBeforeLongBreak)
+
+                val nextMode = if (isLongBreak) PomodoroMode.LONG_BREAK else PomodoroMode.SHORT_BREAK
+                val nextSeconds = (if (isLongBreak) config.longBreakMinutes else config.shortBreakMinutes) * 60
+                val nextMinutes = if (isLongBreak) config.longBreakMinutes else config.shortBreakMinutes
+
+                pomodoroNotificationHelper.showSessionFinishedNotification(
+                    isWorkSession = true,
+                    nextMinutes = nextMinutes
+                )
+
+                pomodoroState.value = state.copy(
+                    mode = nextMode,
+                    totalSecondsRemaining = nextSeconds,
+                    initialTotalSeconds = nextSeconds,
+                    completedWorkSessions = newCompletedSessions,
+                    totalFocusMinutesToday = newFocusMinutes,
+                    isRunning = config.autoStartBreaks
+                )
+
+                if (config.autoStartBreaks) {
+                    startPomodoro()
+                }
+            }
+            PomodoroMode.SHORT_BREAK, PomodoroMode.LONG_BREAK -> {
+                val nextCycleInRound = if (state.mode == PomodoroMode.LONG_BREAK) 1 else state.currentCycleInRound + 1
+                val nextSeconds = config.workMinutes * 60
+
+                pomodoroNotificationHelper.showSessionFinishedNotification(
+                    isWorkSession = false,
+                    nextMinutes = config.workMinutes
+                )
+
+                pomodoroState.value = state.copy(
+                    mode = PomodoroMode.WORK,
+                    totalSecondsRemaining = nextSeconds,
+                    initialTotalSeconds = nextSeconds,
+                    currentCycleInRound = nextCycleInRound,
+                    isRunning = config.autoStartStudy
+                )
+
+                if (config.autoStartStudy) {
+                    startPomodoro()
+                }
+            }
+        }
+    }
+
+    fun pausePomodoro() {
+        pomodoroTimerJob?.cancel()
+        pomodoroState.value = pomodoroState.value.copy(isRunning = false)
+    }
+
+    fun resetPomodoro() {
+        pomodoroTimerJob?.cancel()
+        val state = pomodoroState.value
+        val durationSec = when (state.mode) {
+            PomodoroMode.WORK -> state.config.workMinutes * 60
+            PomodoroMode.SHORT_BREAK -> state.config.shortBreakMinutes * 60
+            PomodoroMode.LONG_BREAK -> state.config.longBreakMinutes * 60
+        }
+        pomodoroState.value = state.copy(
+            isRunning = false,
+            totalSecondsRemaining = durationSec,
+            initialTotalSeconds = durationSec
+        )
+    }
+
+    fun skipToNextPomodoroInterval() {
+        pomodoroTimerJob?.cancel()
+        onPomodoroIntervalComplete()
+    }
+
+    fun switchPomodoroMode(targetMode: PomodoroMode) {
+        pomodoroTimerJob?.cancel()
+        val state = pomodoroState.value
+        val durationSec = when (targetMode) {
+            PomodoroMode.WORK -> state.config.workMinutes * 60
+            PomodoroMode.SHORT_BREAK -> state.config.shortBreakMinutes * 60
+            PomodoroMode.LONG_BREAK -> state.config.longBreakMinutes * 60
+        }
+        pomodoroState.value = state.copy(
+            mode = targetMode,
+            isRunning = false,
+            totalSecondsRemaining = durationSec,
+            initialTotalSeconds = durationSec
+        )
+    }
+
+    fun updatePomodoroConfig(
+        workMinutes: Int,
+        shortBreakMinutes: Int,
+        longBreakMinutes: Int,
+        cycles: Int,
+        autoBreaks: Boolean,
+        autoStudy: Boolean
+    ) {
+        val newConfig = PomodoroConfig(
+            workMinutes = workMinutes.coerceIn(5, 120),
+            shortBreakMinutes = shortBreakMinutes.coerceIn(1, 30),
+            longBreakMinutes = longBreakMinutes.coerceIn(5, 60),
+            cyclesBeforeLongBreak = cycles.coerceIn(1, 10),
+            autoStartBreaks = autoBreaks,
+            autoStartStudy = autoStudy
+        )
+
+        val state = pomodoroState.value
+        val newSec = when (state.mode) {
+            PomodoroMode.WORK -> newConfig.workMinutes * 60
+            PomodoroMode.SHORT_BREAK -> newConfig.shortBreakMinutes * 60
+            PomodoroMode.LONG_BREAK -> newConfig.longBreakMinutes * 60
+        }
+
+        pomodoroState.value = state.copy(
+            config = newConfig,
+            totalSecondsRemaining = if (!state.isRunning) newSec else state.totalSecondsRemaining,
+            initialTotalSeconds = newSec
+        )
+    }
+
+    fun adjustPomodoroMinutes(minutesDelta: Int) {
+        val state = pomodoroState.value
+        val newSec = (state.totalSecondsRemaining + minutesDelta * 60).coerceAtLeast(10)
+        pomodoroState.value = state.copy(
+            totalSecondsRemaining = newSec,
+            initialTotalSeconds = maxOf(state.initialTotalSeconds, newSec)
         )
     }
 }

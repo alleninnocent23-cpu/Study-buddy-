@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,8 @@ import com.example.ui.theme.TrueBlack
 @Composable
 fun SettingsDialog(
     currentUser: UserEntity?,
+    voiceGender: com.example.util.VoiceGender = com.example.util.VoiceGender.MALE,
+    onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
     onDismiss: () -> Unit,
     onSaveApiKey: (String) -> Unit,
     onLogout: () -> Unit
@@ -141,6 +144,80 @@ fun SettingsDialog(
                                 text = currentUser?.grade ?: "High School",
                                 color = TextMutedGray,
                                 fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Voice Persona Selection Section
+                Text(
+                    text = "AI Voice Persona (Nigerian English)",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Clear, articulate pronunciation tuned for educational explanations",
+                    color = TextMutedGray,
+                    fontSize = 11.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isMale = voiceGender == com.example.util.VoiceGender.MALE
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, if (isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
+                            .clickable { onVoiceGenderChange(com.example.util.VoiceGender.MALE) },
+                        color = if (isMale) PureWhite else TrueBlack
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "👨 Nigerian Male",
+                                color = if (isMale) TrueBlack else PureWhite,
+                                fontSize = 12.sp,
+                                fontWeight = if (isMale) FontWeight.Bold else FontWeight.Medium
+                            )
+                            Text(
+                                text = "Clear Baritone",
+                                color = if (isMale) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, if (!isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
+                            .clickable { onVoiceGenderChange(com.example.util.VoiceGender.FEMALE) },
+                        color = if (!isMale) PureWhite else TrueBlack
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "👩 Nigerian Female",
+                                color = if (!isMale) TrueBlack else PureWhite,
+                                fontSize = 12.sp,
+                                fontWeight = if (!isMale) FontWeight.Bold else FontWeight.Medium
+                            )
+                            Text(
+                                text = "Articulate Tone",
+                                color = if (!isMale) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                                fontSize = 10.sp
                             )
                         }
                     }

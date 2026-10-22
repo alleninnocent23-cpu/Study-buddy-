@@ -19,6 +19,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+enum class VoiceGender {
+    MALE,
+    FEMALE
+}
+
 class VoiceManager(private val context: Context) {
     private val TAG = "VoiceManager"
 
@@ -26,6 +31,10 @@ class VoiceManager(private val context: Context) {
     private val fishAudioService = FishAudioTtsService(context)
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var fishJob: Job? = null
+
+    // Voice Persona (Nigerian Male / Nigerian Female)
+    private val _voiceGender = MutableStateFlow(VoiceGender.MALE)
+    val voiceGender: StateFlow<VoiceGender> = _voiceGender.asStateFlow()
 
     // Text To Speech with Nigerian Accent
     private var tts: TextToSpeech? = null
@@ -47,26 +56,67 @@ class VoiceManager(private val context: Context) {
         initTts()
     }
 
+    fun setVoiceGender(gender: VoiceGender) {
+        if (_voiceGender.value == gender) return
+        _voiceGender.value = gender
+        if (isSpeaking.value) {
+            stopSpeaking()
+        }
+        applyVoiceSettings()
+    }
+
+    private fun applyVoiceSettings() {
+        val currentTts = tts ?: return
+        val isMale = _voiceGender.value == VoiceGender.MALE
+
+        try {
+            val voices = currentTts.voices
+            if (!voices.isNullOrEmpty()) {
+                val candidateVoice = if (isMale) {
+                    voices.firstOrNull { v ->
+                        (v.locale.country.equals("NG", ignoreCase = true) || v.name.lowercase().contains("nigeria") || v.name.lowercase().contains("en-ng")) &&
+                        (v.name.lowercase().contains("male") || v.name.lowercase().contains("#m") || !v.name.lowercase().contains("female"))
+                    } ?: voices.firstOrNull { v ->
+                        v.locale.language == "en" && (v.name.lowercase().contains("male") || v.name.lowercase().contains("#m"))
+                    }
+                } else {
+                    voices.firstOrNull { v ->
+                        (v.locale.country.equals("NG", ignoreCase = true) || v.name.lowercase().contains("nigeria") || v.name.lowercase().contains("en-ng")) &&
+                        (v.name.lowercase().contains("female") || v.name.lowercase().contains("#f"))
+                    } ?: voices.firstOrNull { v ->
+                        v.locale.language == "en" && v.name.lowercase().contains("female")
+                    }
+                }
+
+                if (candidateVoice != null) {
+                    currentTts.voice = candidateVoice
+                    Log.i(TAG, "Selected voice for ${_voiceGender.value}: ${candidateVoice.name}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error choosing custom voice", e)
+        }
+
+        if (isMale) {
+            // Natural, deep, resonant Nigerian male cadence (clears away thin robotic buzz)
+            currentTts.setSpeechRate(0.93f)
+            currentTts.setPitch(0.85f)
+        } else {
+            // Clear, articulate Nigerian female cadence
+            currentTts.setSpeechRate(0.96f)
+            currentTts.setPitch(1.04f)
+        }
+    }
+
     private fun initTts() {
         tts = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 // Apply Nigerian accent: Locale("en", "NG")
                 val langResult = tts?.setLanguage(nigerianLocale)
                 if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.w(TAG, "Locale en_NG not fully installed, checking available Nigerian voices")
+                    Log.w(TAG, "Locale en_NG not fully installed, falling back to British English for clear pronunciation")
                     try {
-                        val voices = tts?.voices
-                        val ngVoice = voices?.firstOrNull { voice: Voice ->
-                            voice.locale.country.equals("NG", ignoreCase = true) ||
-                            voice.name.lowercase().contains("nigeria") ||
-                            voice.name.lowercase().contains("en-ng")
-                        }
-                        if (ngVoice != null) {
-                            tts?.voice = ngVoice
-                            Log.i(TAG, "Selected Nigerian voice: ${ngVoice.name}")
-                        } else {
-                            tts?.language = Locale.UK
-                        }
+                        tts?.language = Locale.UK
                     } catch (e: Exception) {
                         tts?.language = Locale.getDefault()
                     }
@@ -74,9 +124,7 @@ class VoiceManager(private val context: Context) {
                     Log.i(TAG, "TTS initialized with Nigerian English locale: en_NG")
                 }
 
-                // Melodic, clear Nigerian educational speech pacing
-                tts?.setSpeechRate(0.96f)
-                tts?.setPitch(1.02f)
+                applyVoiceSettings()
 
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
@@ -108,12 +156,14 @@ class VoiceManager(private val context: Context) {
     fun speak(rawText: String) {
         stopSpeaking()
         val cleanSpeechText = cleanTextForSpeech(rawText)
+        val isMale = _voiceGender.value == VoiceGender.MALE
 
         // Try Fish Audio Nigerian voice model first using the user's API key
         fishJob = scope.launch {
             var fallbackTriggered = false
             val fishSuccess = fishAudioService.synthesizeAndPlay(
                 text = cleanSpeechText,
+                isMale = isMale,
                 onStart = {
                     _isSpeaking.value = true
                 },
@@ -256,14 +306,23 @@ class VoiceManager(private val context: Context) {
 
     private fun cleanTextForSpeech(text: String): String {
         return text
+            .replace(Regex("\\?\\s*\\$\\$\\s*\\(\\s*\\)"), "")
+            .replace(Regex("\\?\\s*\\$\\$"), "")
+            .replace(Regex("\\$\\$\\s*\\(\\s*\\)"), "")
+            .replace(Regex("\\$\\s*\\(\\s*\\)"), "")
+            .replace("$$", "")
+            .replace("$", "")
             .replace(Regex("[#*`_~>\\[\\]()]"), " ")
             .replace(Regex("\\b(Step \\d+:?)"), "$1. ")
             .replace("==", " equals ")
             .replace("!=", " does not equal ")
             .replace("<=", " is less than or equal to ")
             .replace(">=", " is greater than or equal to ")
+            .replace("²", " squared")
             .replace("^2", " squared")
+            .replace("³", " cubed")
             .replace("^3", " cubed")
+            .replace("√", " square root of ")
             .replace(Regex("\\s+"), " ")
             .trim()
     }

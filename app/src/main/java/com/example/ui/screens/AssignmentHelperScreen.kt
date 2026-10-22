@@ -11,17 +11,9 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,43 +22,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Biotech
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,29 +50,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
-import com.example.ui.components.AudioWaveIndicator
-import com.example.ui.components.EducationalDiagramView
-import com.example.ui.components.ExplanationControlsBar
-import com.example.ui.components.GlassCard
+import com.example.ui.components.CameraCaptureDialog
+import com.example.ui.components.ChatGptEmptyPrompts
+import com.example.ui.components.ChatGptInputBar
+import com.example.ui.components.ChatGptMessageItem
+import com.example.ui.components.ChatGptTopBar
+import com.example.ui.components.GetPlusDialog
+import com.example.ui.components.VoiceModeDialog
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.ChatGptPillDark
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
-import com.example.ui.theme.TextSubtle
 import com.example.ui.theme.TrueBlack
 import com.example.viewmodel.TutorState
 
@@ -109,7 +82,7 @@ fun AssignmentHelperScreen(
     attachedFileName: String? = null,
     onSelectSubject: (String) -> Unit,
     onTopicChange: (String) -> Unit,
-    onExplain: () -> Unit,
+    onSendChatMessage: (String?) -> Unit,
     onAttachImage: (Bitmap) -> Unit = {},
     onAttachFile: (String) -> Unit = {},
     onClearAttachment: () -> Unit = {},
@@ -117,34 +90,33 @@ fun AssignmentHelperScreen(
     onStopVoice: () -> Unit,
     onPlayAnswer: (String) -> Unit,
     onStopAnswerVoice: () -> Unit,
+    onClearChat: () -> Unit,
+    onOpenDrawer: () -> Unit,
+    onScanHomeworkShortcut: () -> Unit,
+    onQuizShortcut: () -> Unit,
+    onPomodoroShortcut: () -> Unit = {},
+    onLikeMessage: (String, Boolean) -> Unit,
+    voiceGender: com.example.util.VoiceGender = com.example.util.VoiceGender.MALE,
+    onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+
     var showAttachmentPicker by remember { mutableStateOf(false) }
+    var showCameraCapture by remember { mutableStateOf(false) }
+    var showGetPlusDialog by remember { mutableStateOf(false) }
+    var showVoiceModeDialog by remember { mutableStateOf(false) }
+    var showSubjectFilterDialog by remember { mutableStateOf(false) }
 
-    // Light growing animation for the downward fixed input border
-    val infiniteTransition = rememberInfiniteTransition(label = "light_pulse")
-    val glowSpread by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 2.4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_spread"
-    )
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_alpha"
-    )
+    // Scroll to bottom when new messages arrive
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
+        }
+    }
 
-    // Activity launchers for Image and File picker
+    // Activity launchers for photo & file selection
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -169,7 +141,7 @@ fun AssignmentHelperScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            var fileName = "Document File"
+            var fileName = "Document"
             context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (cursor.moveToFirst() && nameIndex >= 0) {
@@ -180,7 +152,7 @@ fun AssignmentHelperScreen(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
@@ -188,17 +160,78 @@ fun AssignmentHelperScreen(
         }
     }
 
-    val subjects = listOf(
-        Pair("Mathematics", Icons.Default.Calculate),
-        Pair("Physics", Icons.Default.Science),
-        Pair("Chemistry", Icons.Default.Biotech),
-        Pair("Biology", Icons.Default.Psychology),
-        Pair("History", Icons.Default.HistoryEdu),
-        Pair("English", Icons.AutoMirrored.Filled.MenuBook),
-        Pair("Computer Science", Icons.Default.Code)
-    )
+    // Modal dialogs
+    if (showGetPlusDialog) {
+        GetPlusDialog(onDismiss = { showGetPlusDialog = false })
+    }
 
-    // Attachment Dialog (+ Button Modal)
+    if (showVoiceModeDialog) {
+        VoiceModeDialog(
+            isSpeaking = isSpeaking,
+            isListening = isListening,
+            voiceGender = voiceGender,
+            onVoiceGenderChange = onVoiceGenderChange,
+            onClose = {
+                showVoiceModeDialog = false
+                onStopVoice()
+                onStopAnswerVoice()
+            },
+            onToggleMic = {
+                if (isListening) onStopVoice() else onStartVoice()
+            }
+        )
+    }
+
+    if (showSubjectFilterDialog) {
+        Dialog(onDismissRequest = { showSubjectFilterDialog = false }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(1.dp, BorderLight, RoundedCornerShape(16.dp)),
+                color = DarkSurface
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = "Filter School Subject",
+                        color = PureWhite,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val subjects = listOf("All Subjects", "Mathematics", "Physics", "Chemistry", "Biology", "History", "English", "Computer Science")
+                    subjects.forEach { sub ->
+                        val isSelected = state.selectedSubject == sub
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onSelectSubject(sub)
+                                    showSubjectFilterDialog = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = sub,
+                                color = if (isSelected) PureWhite else TextMutedGray,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isSelected) {
+                                Text("✓", color = PureWhite, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Attachment Picker Modal
     if (showAttachmentPicker) {
         Dialog(onDismissRequest = { showAttachmentPicker = false }) {
             Surface(
@@ -227,7 +260,7 @@ fun AssignmentHelperScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Option 1: Gallery Photo
+                    // Option 1: Gallery
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -248,7 +281,7 @@ fun AssignmentHelperScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Image, contentDescription = null, tint = PureWhite, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.Image, contentDescription = null, tint = PureWhite, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Add Photo / Screenshot", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -257,7 +290,7 @@ fun AssignmentHelperScreen(
                         }
                     }
 
-                    // Option 2: Camera Capture
+                    // Option 2: Camera
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -266,7 +299,7 @@ fun AssignmentHelperScreen(
                             .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
                             .clickable {
                                 showAttachmentPicker = false
-                                cameraLauncher.launch(null)
+                                showCameraCapture = true
                             },
                         color = TrueBlack
                     ) {
@@ -274,16 +307,16 @@ fun AssignmentHelperScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = PureWhite, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = PureWhite, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Take Camera Photo", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Snap notebook or printed textbook page", color = TextMutedGray, fontSize = 11.sp)
+                                Text("Snap textbook or homework page", color = TextMutedGray, fontSize = 11.sp)
                             }
                         }
                     }
 
-                    // Option 3: Document File
+                    // Option 3: Document
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -300,11 +333,11 @@ fun AssignmentHelperScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Description, contentDescription = null, tint = PureWhite, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.Description, contentDescription = null, tint = PureWhite, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Add Document / File", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Attach PDF, worksheet, notes", color = TextMutedGray, fontSize = 11.sp)
+                                Text("Attach PDF or study notes", color = TextMutedGray, fontSize = 11.sp)
                             }
                         }
                     }
@@ -318,535 +351,140 @@ fun AssignmentHelperScreen(
             .fillMaxSize()
             .background(TrueBlack)
     ) {
-        // Scrollable Content Layer (Explanations, Subjects, Diagrams)
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 125.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "AI Assignment Helper",
-                        color = PureWhite,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.5).sp
-                    )
-                    Text(
-                        text = "Step-by-step school explanations, formulas & diagrams",
-                        color = TextMutedGray,
-                        fontSize = 12.sp
-                    )
-                }
-                if (isSpeaking) {
-                    AudioWaveIndicator(activeColor = PureWhite)
-                }
-            }
+            // ChatGPT Top Bar (matching Screenshot 1 when empty, Screenshot 2 when chatting)
+            ChatGptTopBar(
+                hasMessages = state.messages.isNotEmpty(),
+                onMenuClick = onOpenDrawer,
+                onGetPlusClick = { showGetPlusDialog = true },
+                onNewChatClick = onClearChat,
+                onClearChat = onClearChat,
+                onSelectSubject = { showSubjectFilterDialog = true }
+            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // Middle Content Area
+            if (state.messages.isEmpty()) {
+                // Screenshot 1: Blank OLED Canvas with suggestion rows at the bottom
+                Spacer(modifier = Modifier.weight(1f))
 
-            // Subject Pills
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                subjects.forEach { (subName, icon) ->
-                    val isSelected = state.selectedSubject == subName
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(
-                                1.dp,
-                                if (isSelected) PureWhite else BorderSubtle,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable { onSelectSubject(subName) }
-                            .testTag("subject_pill_$subName"),
-                        color = if (isSelected) PureWhite else DarkSurface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = if (isSelected) TrueBlack else TextMutedGray,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = subName,
-                                color = if (isSelected) TrueBlack else PureWhite,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Quick Topic Suggestions
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val suggestions = when (state.selectedSubject) {
-                    "Mathematics" -> listOf("Pythagorean Theorem", "Quadratic Formula", "Derivatives of Sin(x)", "Circle Geometry")
-                    "Physics" -> listOf("Newton's 2nd Law", "Ohm's Law", "Kinetic Energy", "Wave Interference")
-                    "Chemistry" -> listOf("Bohr Model of Atom", "Balancing Redox Reactions", "Periodic Trends", "Acids and Bases")
-                    "Biology" -> listOf("Photosynthesis Steps", "Cellular Respiration", "DNA Replication", "Mitosis vs Meiosis")
-                    else -> listOf("Key Causes of WWII", "French Revolution", "Literary Devices", "Binary Search Algorithm")
-                }
-
-                suggestions.forEach { promptText ->
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(1.dp, BorderSubtle, RoundedCornerShape(6.dp))
-                            .clickable {
-                                onTopicChange(promptText)
-                                onExplain()
-                            },
-                        color = TrueBlack
-                    ) {
-                        Text(
-                            text = promptText,
-                            color = TextMutedGray,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-            }
-
-            // Notice or Error
-            if (state.error != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(8.dp)),
-                    color = DarkSurface
-                ) {
-                    Text(
-                        text = state.error,
-                        color = TextMutedGray,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(10.dp)
-                    )
-                }
-            }
-
-            // Active Attachment Preview Chip (if any image/file selected via +)
-            AnimatedVisibility(visible = attachedImage != null || attachedFileName != null) {
-                Column(modifier = Modifier.padding(top = 14.dp)) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, PureWhite, RoundedCornerShape(10.dp)),
-                        color = DarkSurface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (attachedImage != null) {
-                                Image(
-                                    bitmap = attachedImage.asImageBitmap(),
-                                    contentDescription = "Attachment Thumbnail",
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(6.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.AttachFile,
-                                    contentDescription = null,
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = attachedFileName ?: "Attached homework media",
-                                    color = PureWhite,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Ready to analyze with question",
-                                    color = TextMutedGray,
-                                    fontSize = 11.sp
-                                )
-                            }
-                            IconButton(onClick = onClearAttachment) {
-                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = PureWhite)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sent Message Bubble (Displays immediately when user sends a question)
-            if (state.sentQuestion != null) {
-                Spacer(modifier = Modifier.height(18.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .widthIn(max = 330.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .border(1.dp, PureWhite.copy(alpha = 0.85f), RoundedCornerShape(18.dp)),
-                        color = DarkSurface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Student Question",
-                                tint = PureWhite,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = state.sentQuestion,
-                                color = PureWhite,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Solving / Loading Status
-            if (state.isLoading) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth(0.92f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp)),
-                    color = DarkSurface
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            color = PureWhite,
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "StudyBuddy is breaking down the steps and formulas...",
-                            color = TextMutedGray,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
-
-            // Explanation Output Card (Reduced width size and curved border)
-            AnimatedVisibility(visible = state.currentExplanation != null) {
-                state.currentExplanation?.let { explanation ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // Action row over the answers with + button to add images and files
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .widthIn(max = 480.dp)
-                                .padding(bottom = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "StudyBuddy Explanation",
-                                color = PureWhite,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            // + Button over answers to add images and files
-                            Surface(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .border(1.2.dp, PureWhite, RoundedCornerShape(18.dp))
-                                    .clickable { showAttachmentPicker = true }
-                                    .testTag("over_answers_add_button"),
-                                color = DarkSurface
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, tint = PureWhite, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = "+ Add Image / File",
-                                        color = PureWhite,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-
-                        // Answer Card: Reduced width and curved border (24.dp)
-                        GlassCard(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .widthIn(max = 480.dp),
-                            cornerRadius = 24.dp,
-                            borderColor = BorderLight,
-                            backgroundColor = DarkSurface
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                // Header
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "StudyBuddy Explanation",
-                                        color = PureWhite,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Box(
-                                        modifier = Modifier
-                                            .border(1.dp, BorderLight, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = state.selectedSubject.uppercase(),
-                                            color = PureWhite,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                // Explanation Body
-                                Text(
-                                    text = explanation.explanationText,
-                                    color = PureWhite,
-                                    fontSize = 13.sp,
-                                    lineHeight = 20.sp
-                                )
-
-                                // Educational Diagram
-                                if (explanation.diagramType != "none") {
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                    EducationalDiagramView(
-                                        diagramType = explanation.diagramType,
-                                        title = explanation.diagramTitle
-                                    )
-                                }
-
-                                // MANDATORY REQUIREMENT 6:
-                                // "Under every AI explanation, place three controls in this order: Play Answer, Copy Text, and Stop Voice.
-                                // The Play Answer button must read the actual explanation aloud, and Stop Voice must immediately stop playback."
-                                ExplanationControlsBar(
-                                    explanationText = explanation.explanationText,
-                                    isSpeaking = isSpeaking,
-                                    onPlayAnswer = { onPlayAnswer(explanation.explanationText) },
-                                    onStopVoice = onStopAnswerVoice
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // FIXED DOWNWARD TEXT INPUT BAR WITH ANIMATION OF LIGHT GROWING AROUND IT
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, TrueBlack, TrueBlack)
-                    )
+                ChatGptEmptyPrompts(
+                    onCreateImage = {
+                        onSendChatMessage("Generate an educational concept diagram for my STEM notes")
+                    },
+                    onWriteEdit = {
+                        onSendChatMessage("Help me write and edit a strong 5-paragraph essay outline")
+                    },
+                    onScanHomework = onScanHomeworkShortcut,
+                    onQuizMe = onQuizShortcut,
+                    onPomodoroFocus = onPomodoroShortcut
                 )
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Reduced width size and curved border with animated growing light
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .widthIn(max = 500.dp)
-                    .clip(RoundedCornerShape(26.dp))
-                    .border(
-                        width = glowSpread.dp,
-                        color = PureWhite.copy(alpha = glowAlpha),
-                        shape = RoundedCornerShape(26.dp)
-                    ),
-                color = DarkSurface,
-                shape = RoundedCornerShape(26.dp)
-            ) {
-                Row(
+            } else {
+                // Screenshot 2: Message stream with user bubble and assistant answer with action icons
+                LazyColumn(
+                    state = listState,
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // + BUTTON TO ADD IMAGES AND FILES
-                    IconButton(
-                        onClick = { showAttachmentPicker = true },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .border(1.dp, BorderLight, CircleShape)
-                            .testTag("assignment_plus_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add image or file",
-                            tint = PureWhite,
-                            modifier = Modifier.size(20.dp)
+                    items(state.messages, key = { it.id }) { msg ->
+                        ChatGptMessageItem(
+                            message = msg,
+                            isSpeakingThis = isSpeaking,
+                            onSpeak = { onPlayAnswer(msg.text) },
+                            onStopSpeak = onStopAnswerVoice,
+                            onLike = { liked -> onLikeMessage(msg.id, liked) }
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Text Input
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(vertical = 4.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        if (state.topicInput.isEmpty()) {
-                            Text(
-                                text = "Ask anything or describe homework...",
-                                color = TextSubtle,
-                                fontSize = 13.sp,
-                                maxLines = 1
-                            )
-                        }
-                        BasicTextField(
-                            value = state.topicInput,
-                            onValueChange = onTopicChange,
-                            textStyle = TextStyle(
-                                color = PureWhite,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Normal
-                            ),
-                            cursorBrush = SolidColor(PureWhite),
-                            maxLines = 3,
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Send,
-                                keyboardType = KeyboardType.Text
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onSend = {
-                                    if (!state.isLoading && (state.topicInput.isNotBlank() || attachedImage != null)) {
-                                        onExplain()
-                                    }
-                                }
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("assignment_topic_input")
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Voice Mic
-                    IconButton(
-                        onClick = {
-                            if (isListening) {
-                                onStopVoice()
-                            } else {
-                                val hasAudioPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (hasAudioPermission) {
-                                    onStartVoice()
-                                } else {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
+                    // Loading indicator
+                    if (state.isLoading) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    color = PureWhite,
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Study Buddy is solving...",
+                                    color = TextMutedGray,
+                                    fontSize = 13.sp
+                                )
                             }
-                        },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(if (isListening) PureWhite else Color.Transparent)
-                            .testTag("assignment_mic_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Voice Input",
-                            tint = if (isListening) TrueBlack else PureWhite,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // Send Action Button (Solid white circle with black arrow)
-                    IconButton(
-                        onClick = onExplain,
-                        enabled = !state.isLoading && (state.topicInput.isNotBlank() || attachedImage != null),
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (!state.isLoading && (state.topicInput.isNotBlank() || attachedImage != null)) PureWhite
-                                else Color(0xFF262626)
-                            )
-                            .testTag("assignment_explain_button")
-                    ) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(
-                                color = TrueBlack,
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Explain",
-                                tint = if (state.topicInput.isNotBlank() || attachedImage != null) TrueBlack else TextSubtle,
-                                modifier = Modifier.size(16.dp)
+                    // Error notice if any
+                    if (state.error != null) {
+                        item {
+                            Text(
+                                text = state.error,
+                                color = TextMutedGray,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                             )
                         }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
                 }
             }
+
+            // Fixed Bottom Input Bar (matching both screenshots)
+            ChatGptInputBar(
+                text = state.topicInput,
+                onTextChange = onTopicChange,
+                hasActiveMessages = state.messages.isNotEmpty(),
+                attachedImage = attachedImage,
+                attachedFileName = attachedFileName,
+                onClearAttachment = onClearAttachment,
+                onAddAttachment = { showAttachmentPicker = true },
+                onVoiceDictation = {
+                    val hasPerm = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (hasPerm) {
+                        if (isListening) onStopVoice() else onStartVoice()
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onOpenVoiceMode = {
+                    showVoiceModeDialog = true
+                    val hasPerm = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (hasPerm) {
+                        onStartVoice()
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onSend = { onSendChatMessage(null) },
+                isListening = isListening,
+                isLoading = state.isLoading,
+                modifier = Modifier.navigationBarsPadding()
+            )
         }
     }
+
+    CameraCaptureDialog(
+        isOpen = showCameraCapture,
+        onDismiss = { showCameraCapture = false },
+        onPhotoCaptured = { bitmap ->
+            onAttachImage(bitmap)
+        }
+    )
 }
