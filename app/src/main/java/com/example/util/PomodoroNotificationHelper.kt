@@ -11,8 +11,10 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.graphics.BitmapFactory
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.R
 
 class PomodoroNotificationHelper(private val context: Context) {
 
@@ -53,7 +55,7 @@ class PomodoroNotificationHelper(private val context: Context) {
         val title = if (isWorkSession) {
             "🎉 Study Session Complete!"
         } else {
-            "🔔 Break Over — Time to Focus!"
+            "🤖 Break Over — Time to Focus!"
         }
 
         val message = if (isWorkSession) {
@@ -74,8 +76,14 @@ class PomodoroNotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+        val botLargeIcon = try {
+            BitmapFactory.decodeResource(context.resources, R.drawable.ic_study_buddy_avatar)
+        } catch (_: Exception) {
+            null
+        }
+
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_bot)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
@@ -84,7 +92,12 @@ class PomodoroNotificationHelper(private val context: Context) {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setVibrate(longArrayOf(0, 400, 200, 400))
-            .build()
+
+        if (botLargeIcon != null) {
+            notificationBuilder.setLargeIcon(botLargeIcon)
+        }
+
+        val notification = notificationBuilder.build()
 
         try {
             notificationManager.notify(NOTIFICATION_ID_COMPLETED, notification)

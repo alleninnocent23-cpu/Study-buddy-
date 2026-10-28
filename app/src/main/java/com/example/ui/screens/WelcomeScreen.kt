@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.LoopingVideoPlayer
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
 import com.example.ui.theme.TrueBlack
@@ -56,20 +58,17 @@ fun WelcomeScreen(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            // Bot image: Bigger, static (no animation)
-            Box(
+            // Bot mascot video: Loops continuously, muted, no background, no border
+            LoopingVideoPlayer(
+                videoRawResId = R.raw.welcome_bot,
+                hasBorder = false,
+                backgroundColor = Color.Transparent,
+                showMuteBadge = false,
                 modifier = Modifier
-                    .size(290.dp)
-                    .background(TrueBlack),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.study_buddy_welcome),
-                    contentDescription = "StudyBuddy Bot",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-            }
+                    .width(220.dp)
+                    .height(390.dp)
+                    .padding(vertical = 4.dp)
+            )
 
             Spacer(modifier = Modifier.height(28.dp))
 

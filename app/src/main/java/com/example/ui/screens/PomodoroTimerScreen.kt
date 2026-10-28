@@ -10,9 +10,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,8 +37,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassBottom
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -616,18 +617,32 @@ private fun NotificationStatusCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         color = if (hasPermission) DarkSurface else Color(0xFF1E1700),
-        border = BorderStroke(1.dp, if (hasPermission) BorderSubtle else Color(0xFFFFB300).copy(alpha = 0.4f))
+        border = null
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (hasPermission) Icons.Default.NotificationsActive else Icons.Default.Notifications,
-                contentDescription = null,
-                tint = if (hasPermission) PureWhite else Color(0xFFFFB300),
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier.size(28.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_study_buddy_avatar),
+                    contentDescription = "StudyBuddy Bot",
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                )
+                if (hasPermission) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .align(Alignment.BottomEnd)
+                            .background(Color(0xFF22C55E), CircleShape)
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

@@ -1,0 +1,28 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Robot Earphones / Antennas -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2,9h2v6H2z M20,9h2v6h-2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,7h1.5v3H3z M19.5,7h1.5v3h-1.5z" />
+    <!-- Robot Head Outline / Shell -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4c-4.42,0 -8,2.69 -8,6v4c0,3.31 3.58,6 8,6s8,-2.69 8,-6v-4c0,-3.31 -3.58,-6 -8,-6zM18,14c0,2.21 -2.69,4 -6,4s-6,-1.79 -6,-4v-4c0,-2.21 2.69,-4 6,-4s6,1.79 6,4v4z" />
+    <!-- Visor Face Eyes (Happy Arches) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,11c-0.8,0 -1.5,0.7 -1.5,1.5h1c0,-0.3 0.2,-0.5 0.5,-0.5s0.5,0.2 0.5,0.5h1C10.5,11.7 9.8,11 9,11z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15,11c-0.8,0 -1.5,0.7 -1.5,1.5h1c0,-0.3 0.2,-0.5 0.5,-0.5s0.5,0.2 0.5,0.5h1C16.5,11.7 15.8,11 15,11z" />
+    <!-- Cute Smile -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,15.5c-1.1,0 -2,-0.4 -2.3,-0.9l0.9,-0.5c0.2,0.3 0.8,0.5 1.4,0.5s1.2,-0.2 1.4,-0.5l0.9,0.5C14,15.1 13.1,15.5 12,15.5z" />
+</vector>

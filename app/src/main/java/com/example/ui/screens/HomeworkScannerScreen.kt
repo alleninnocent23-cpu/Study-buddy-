@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -57,10 +58,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.ui.components.CameraCaptureDialog
 import com.example.ui.components.EducationalDiagramView
 import com.example.ui.components.ExplanationControlsBar
 import com.example.ui.components.GlassCard
+import com.example.ui.components.LoopingVideoPlayer
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.DarkSurface
@@ -142,6 +145,48 @@ fun HomeworkScannerScreen(
         }
 
         Spacer(modifier = Modifier.height(18.dp))
+
+        // Robot Vision Scanner Mascot Video (Looping & Muted, No Border, No Background)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            LoopingVideoPlayer(
+                videoRawResId = R.raw.scanner_robot,
+                hasBorder = false,
+                backgroundColor = Color.Transparent,
+                showMuteBadge = false,
+                modifier = Modifier.size(170.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .background(Color(0xFF22C55E), CircleShape)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (state.isAnalyzing) "AI Robot Inspecting Problem..." else "Vision Inspector Ready",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (state.isAnalyzing) "Processing visual cues, math equations, and diagrams" else "Continuous AI vision inspector for worksheet solving",
+                color = TextMutedGray,
+                fontSize = 11.sp
+            )
+        }
 
         // Image Picker Area (Black and White)
         if (state.capturedImage == null) {
