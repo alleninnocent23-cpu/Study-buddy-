@@ -78,7 +78,9 @@ import androidx.compose.runtime.LaunchedEffect
 import com.example.ui.screens.PomodoroTimerScreen
 import com.example.ui.screens.QuizGeneratorScreen
 import com.example.ui.screens.SettingsDialog
+import com.example.ui.screens.WaecJambScreen
 import com.example.ui.screens.WelcomeScreen
+import androidx.compose.material.icons.filled.School
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.ChatGptDrawerBg
@@ -127,6 +129,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     val scannerState by viewModel.scannerState.collectAsState()
     val quizState by viewModel.quizState.collectAsState()
     val pomodoroState by viewModel.pomodoroState.collectAsState()
+    val waecJambState by viewModel.waecJambState.collectAsState()
 
     val isSpeaking by viewModel.voiceManager.isSpeaking.collectAsState()
     val isListening by viewModel.voiceManager.isListening.collectAsState()
@@ -161,6 +164,14 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
             when (currentScreen) {
                 AppScreen.AUTH -> viewModel.navigateTo(AppScreen.WELCOME)
                 AppScreen.SCANNER, AppScreen.QUIZ, AppScreen.HISTORY, AppScreen.POMODORO -> viewModel.navigateTo(AppScreen.TUTOR)
+                AppScreen.EXAM_PREP -> {
+                    when (waecJambState.stage) {
+                        com.example.data.model.ExamScreenStage.ACTIVE_EXAM -> viewModel.resetWaecJambToSetup()
+                        com.example.data.model.ExamScreenStage.SELECTION_SETUP -> viewModel.backToWaecJambGetStarted()
+                        com.example.data.model.ExamScreenStage.GET_STARTED,
+                        com.example.data.model.ExamScreenStage.EXAM_RESULTS -> viewModel.navigateTo(AppScreen.TUTOR)
+                    }
+                }
                 AppScreen.TUTOR -> {
                     // Back on tutor clears chat if active, else navigates to welcome
                     if (tutorState.messages.isNotEmpty()) {
@@ -283,6 +294,15 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                         isSelected = currentScreen == AppScreen.POMODORO,
                         onClick = {
                             viewModel.navigateTo(AppScreen.POMODORO)
+                            scope.launch { drawerState.close() }
+                        }
+                    )
+                    DrawerNavItem(
+                        title = "WAEC & JAMB Exam Prep",
+                        icon = Icons.Default.School,
+                        isSelected = currentScreen == AppScreen.EXAM_PREP,
+                        onClick = {
+                            viewModel.openWaecJambPrep()
                             scope.launch { drawerState.close() }
                         }
                     )
@@ -502,7 +522,9 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                 when (screen) {
                     AppScreen.WELCOME -> {
                         WelcomeScreen(
-                            onGetStarted = { viewModel.navigateTo(AppScreen.AUTH) }
+                            onSignUp = { viewModel.openAuthScreen(isLoginMode = false) },
+                            onLogIn = { viewModel.openAuthScreen(isLoginMode = true) },
+                            onDemoLogin = { viewModel.continueAsDemoStudent() }
                         )
                     }
 
@@ -626,9 +648,36 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                                     viewModel.updatePomodoroConfig(w, sb, lb, c, ab, as_)
                                 },
                                 onAdjustMinutes = { viewModel.adjustPomodoroMinutes(it) },
-                                modifier = Modifier.fillMaxSize()
                             )
                         }
+                    }
+
+                    AppScreen.EXAM_PREP -> {
+                        WaecJambScreen(
+                            state = waecJambState,
+                            isSpeaking = isSpeaking,
+                            onProceedFromGetStarted = { viewModel.proceedFromWaecJambGetStarted() },
+                            onBackToGetStarted = { viewModel.backToWaecJambGetStarted() },
+                            onExitExamPrep = { viewModel.navigateTo(AppScreen.TUTOR) },
+                            onSelectExam = { viewModel.updateWaecJambExam(it) },
+                            onSelectSubject = { viewModel.updateWaecJambSubject(it) },
+                            onSelectYear = { viewModel.updateWaecJambYear(it) },
+                            onSelectTopic = { viewModel.updateWaecJambTopic(it) },
+                            onSelectDifficulty = { viewModel.updateWaecJambDifficulty(it) },
+                            onSelectMode = { viewModel.updateWaecJambMode(it) },
+                            onSelectQuestionCount = { viewModel.updateWaecJambCount(it) },
+                            onStartExam = { viewModel.startWaecJambExam() },
+                            onSelectAnswer = { q, o -> viewModel.selectWaecJambAnswer(q, o) },
+                            onNextQuestion = { viewModel.nextWaecJambQuestion() },
+                            onPrevQuestion = { viewModel.prevWaecJambQuestion() },
+                            onJumpToQuestion = { viewModel.jumpToWaecJambQuestion(it) },
+                            onToggleFlagQuestion = { viewModel.toggleFlagWaecJambQuestion(it) },
+                            onSubmitExam = { viewModel.submitWaecJambExam() },
+                            onRetakeExam = { viewModel.retakeWaecJambExam() },
+                            onResetToSetup = { viewModel.resetWaecJambToSetup() },
+                            onPlayAudio = { viewModel.playExplanation(it) },
+                            onStopAudio = { viewModel.stopExplanationVoice() }
+                        )
                     }
                 }
             }

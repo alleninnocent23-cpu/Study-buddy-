@@ -15,6 +15,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
+import com.example.data.model.ExamType
+import com.example.data.model.WaecJambQuestion
+import com.example.data.repository.WaecJambQuestionBank
 
 data class QuizQuestion(
     val id: Int,
@@ -759,5 +762,188 @@ object GeminiClient {
         }
         scaled.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
         return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+    }
+
+    /**
+     * Generates or fetches authentic WAEC & JAMB past exam questions with step-by-step working,
+     * explanations of why other options are wrong, and concept frequency metrics.
+     */
+    suspend fun generateWaecJambQuestions(
+        examType: ExamType,
+        subject: String,
+        selectedYear: Int? = null,
+        topic: String = "All Topics",
+        difficulty: String = "Mixed",
+        count: Int = 10
+    ): Result<List<WaecJambQuestion>> = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey()
+        if (apiKey.isEmpty()) {
+            val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+            return@withContext Result.success(fallback)
+        }
+
+        val examLabel = if (examType == ExamType.WAEC) "WAEC O'Level/A'Level" else "JAMB UTME"
+        val yearFocus = if (selectedYear != null) "$selectedYear" else "1997-2026"
+
+        val prompt = """
+            You are an intelligent WAEC and JAMB exam preparation system.
+            Provide $count authentic past examination questions for:
+            - Exam: $examLabel
+            - Subject: $subject
+            - Topic: $topic
+            - Year/Period: $yearFocus (spanning 1997 to 2026)
+            - Difficulty: $difficulty
+
+            Strict requirements:
+            1. Questions must be authentic past exam questions with full working.
+            2. For each question, explain the correct answer AND provide concise reasons why each other option is incorrect.
+            3. Include frequency metric (e.g., 'Appears in 75% of past papers • High-Yield').
+
+            Return a valid JSON array of $count objects with this exact schema:
+            [
+              {
+                "id": "WAEC-MTH-2022-Q14",
+                "year": 2022,
+                "session": "May/June",
+                "topic": "Algebra",
+                "subtopic": "Quadratic Equations",
+                "difficulty": "Medium",
+                "question": "Question text here...",
+                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "correctIndex": 0,
+                "explanation": "Detailed step-by-step solution...",
+                "whyOthersAreWrong": {
+                  "B": "Why B is incorrect...",
+                  "C": "Why C is incorrect...",
+                  "D": "Why D is incorrect..."
+                },
+                "relatedConcepts": ["Concept 1", "Concept 2"],
+                "frequencyData": "Appears in 80% of past papers • Last asked 2022"
+              }
+            ]
+            Return ONLY the raw JSON array.
+        """.trimIndent()
+
+        try {
+            val url = "$BASE_URL$TEXT_MODEL:generateContent?key=$apiKey"
+            val requestJson = JSONObject().apply {
+                val contentsArray = JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", prompt) })
+                        })
+                    })
+                }
+                put("contents", contentsArray)
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.2)
+                    put("maxOutputTokens", 4096)
+                    put("responseMimeType", "application/json")
+                })
+            }
+
+            val request = Request.Builder()
+                .url(url)
+                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Gemini API error, falling back to local question bank: $responseBody")
+                val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+                return@withContext Result.success(fallback)
+            }
+
+            val jsonObject = JSONObject(responseBody)
+            val candidates = jsonObject.getJSONArray("candidates")
+            val candidate = candidates.getJSONObject(0)
+            val contentObj = candidate.getJSONObject("content")
+            val parts = contentObj.getJSONArray("parts")
+            val rawText = parts.getJSONObject(0).getString("text").trim()
+
+            val cleanJson = if (rawText.startsWith("```json")) {
+                rawText.removePrefix("```json").removeSuffix("```").trim()
+            } else if (rawText.startsWith("```")) {
+                rawText.removePrefix("```").removeSuffix("```").trim()
+            } else {
+                rawText
+            }
+
+            val jsonArray = JSONArray(cleanJson)
+            val list = mutableListOf<WaecJambQuestion>()
+
+            for (i in 0 until jsonArray.length()) {
+                val qObj = jsonArray.getJSONObject(i)
+                val id = qObj.optString("id", "${examType.code}-${subject.take(3).uppercase()}-${i + 1}")
+                val qYear = qObj.optInt("year", selectedYear ?: 2023)
+                val session = qObj.optString("session", "May/June")
+                val qTopic = qObj.optString("topic", topic)
+                val subtopic = qObj.optString("subtopic", "")
+                val diff = qObj.optString("difficulty", difficulty)
+                val qText = qObj.getString("question")
+
+                val optsArray = qObj.getJSONArray("options")
+                val options = mutableListOf<String>()
+                for (j in 0 until optsArray.length()) {
+                    options.add(optsArray.getString(j))
+                }
+
+                val correctIdx = qObj.optInt("correctIndex", 0)
+                val explanation = qObj.optString("explanation", "Verified past question solution.")
+
+                val whyWrongMap = mutableMapOf<String, String>()
+                if (qObj.has("whyOthersAreWrong")) {
+                    val wrongObj = qObj.getJSONObject("whyOthersAreWrong")
+                    val keys = wrongObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        whyWrongMap[key] = wrongObj.getString(key)
+                    }
+                }
+
+                val relatedList = mutableListOf<String>()
+                if (qObj.has("relatedConcepts")) {
+                    val relArray = qObj.getJSONArray("relatedConcepts")
+                    for (k in 0 until relArray.length()) {
+                        relatedList.add(relArray.getString(k))
+                    }
+                }
+
+                val freq = qObj.optString("frequencyData", "Appears in past papers • High-Yield")
+
+                list.add(
+                    WaecJambQuestion(
+                        id = id,
+                        exam = examType,
+                        year = qYear,
+                        session = session,
+                        subject = subject,
+                        topic = qTopic,
+                        subtopic = subtopic,
+                        difficulty = diff,
+                        question = qText,
+                        options = options,
+                        correctIndex = correctIdx,
+                        explanation = explanation,
+                        whyOthersAreWrong = whyWrongMap,
+                        relatedConcepts = relatedList,
+                        frequencyData = freq
+                    )
+                )
+            }
+
+            if (list.isNotEmpty()) {
+                Result.success(list)
+            } else {
+                Result.success(WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error generating WAEC/JAMB questions: ${e.message}", e)
+            val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+            Result.success(fallback)
+        }
     }
 }

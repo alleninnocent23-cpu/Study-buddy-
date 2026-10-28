@@ -28,6 +28,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 import com.example.util.PomodoroNotificationHelper
+import com.example.data.model.ExamType
+import com.example.data.model.ExamPrepMode
+import com.example.data.model.ExamSession
+import com.example.data.model.ExamScreenStage
+import com.example.data.model.WaecJambConfig
+import com.example.data.model.WaecJambQuestion
+import com.example.data.model.WaecJambState
+import com.example.data.repository.WaecJambQuestionBank
 
 enum class AppScreen {
     WELCOME,
@@ -36,7 +44,8 @@ enum class AppScreen {
     SCANNER,
     QUIZ,
     HISTORY,
-    POMODORO
+    POMODORO,
+    EXAM_PREP
 }
 
 enum class PomodoroMode(val displayName: String) {
@@ -153,8 +162,10 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val scannerState = MutableStateFlow(ScannerState())
     val quizState = MutableStateFlow(QuizState())
     val pomodoroState = MutableStateFlow(PomodoroState())
+    val waecJambState = MutableStateFlow(WaecJambState())
     val pomodoroNotificationHelper = PomodoroNotificationHelper(application)
     private var pomodoroTimerJob: kotlinx.coroutines.Job? = null
+    private var examTimerJob: kotlinx.coroutines.Job? = null
 
     // History & Search
     val searchQuery = MutableStateFlow("")
@@ -1064,6 +1075,215 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         pomodoroState.value = state.copy(
             totalSecondsRemaining = newSec,
             initialTotalSeconds = maxOf(state.initialTotalSeconds, newSec)
+        )
+    }
+
+    // --- WAEC & JAMB Exam Prep System ---
+    fun updateWaecJambExam(examType: ExamType) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(examType = examType)
+        )
+    }
+
+    fun updateWaecJambSubject(subject: String) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(subject = subject, topic = "All Topics")
+        )
+    }
+
+    fun updateWaecJambYear(year: Int?) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(selectedYear = year)
+        )
+    }
+
+    fun updateWaecJambTopic(topic: String) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(topic = topic)
+        )
+    }
+
+    fun updateWaecJambDifficulty(difficulty: String) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(difficulty = difficulty)
+        )
+    }
+
+    fun updateWaecJambMode(mode: ExamPrepMode) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(mode = mode)
+        )
+    }
+
+    fun updateWaecJambCount(count: Int) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(questionCount = count)
+        )
+    }
+
+    fun startWaecJambExam() {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(isLoading = true, statusMessage = "Loading verified past exam papers...")
+        viewModelScope.launch {
+            val questionsResult = GeminiClient.generateWaecJambQuestions(
+                examType = curr.config.examType,
+                subject = curr.config.subject,
+                selectedYear = curr.config.selectedYear,
+                topic = curr.config.topic,
+                difficulty = curr.config.difficulty,
+                count = curr.config.questionCount
+            )
+            val questions = questionsResult.getOrDefault(
+                WaecJambQuestionBank.getQuestions(
+                    curr.config.examType,
+                    curr.config.subject,
+                    curr.config.selectedYear,
+                    curr.config.topic,
+                    curr.config.difficulty,
+                    curr.config.questionCount
+                )
+            )
+
+            val timedSec = curr.config.timedMinutes * 60
+            waecJambState.value = curr.copy(
+                stage = ExamScreenStage.ACTIVE_EXAM,
+                questions = questions,
+                currentQuestionIndex = 0,
+                secondsRemaining = timedSec,
+                totalTimeSeconds = timedSec,
+                isTimerActive = curr.config.mode == ExamPrepMode.MOCK_EXAM,
+                isSubmitted = false,
+                isLoading = false,
+                statusMessage = null
+            )
+
+            if (curr.config.mode == ExamPrepMode.MOCK_EXAM) {
+                startExamTimer()
+            }
+        }
+    }
+
+    private fun startExamTimer() {
+        examTimerJob?.cancel()
+        examTimerJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                val curr = waecJambState.value
+                if (!curr.isTimerActive || curr.stage != ExamScreenStage.ACTIVE_EXAM) break
+                val newSec = curr.secondsRemaining - 1
+                if (newSec <= 0) {
+                    waecJambState.value = curr.copy(secondsRemaining = 0, isTimerActive = false)
+                    submitWaecJambExam()
+                    break
+                } else {
+                    waecJambState.value = curr.copy(secondsRemaining = newSec)
+                }
+            }
+        }
+    }
+
+    fun selectWaecJambAnswer(questionIndex: Int, optionIndex: Int) {
+        val curr = waecJambState.value
+        if (questionIndex !in curr.questions.indices) return
+        val updatedQuestions = curr.questions.toMutableList()
+        val q = updatedQuestions[questionIndex]
+        updatedQuestions[questionIndex] = q.copy(userSelectedIndex = optionIndex)
+        waecJambState.value = curr.copy(questions = updatedQuestions)
+    }
+
+    fun nextWaecJambQuestion() {
+        val curr = waecJambState.value
+        if (curr.currentQuestionIndex < curr.questions.size - 1) {
+            waecJambState.value = curr.copy(currentQuestionIndex = curr.currentQuestionIndex + 1)
+        }
+    }
+
+    fun prevWaecJambQuestion() {
+        val curr = waecJambState.value
+        if (curr.currentQuestionIndex > 0) {
+            waecJambState.value = curr.copy(currentQuestionIndex = curr.currentQuestionIndex - 1)
+        }
+    }
+
+    fun jumpToWaecJambQuestion(index: Int) {
+        val curr = waecJambState.value
+        if (index in curr.questions.indices) {
+            waecJambState.value = curr.copy(currentQuestionIndex = index)
+        }
+    }
+
+    fun toggleFlagWaecJambQuestion(index: Int) {
+        val curr = waecJambState.value
+        if (index !in curr.questions.indices) return
+        val updatedQuestions = curr.questions.toMutableList()
+        val q = updatedQuestions[index]
+        updatedQuestions[index] = q.copy(isFlagged = !q.isFlagged)
+        waecJambState.value = curr.copy(questions = updatedQuestions)
+    }
+
+    fun submitWaecJambExam() {
+        examTimerJob?.cancel()
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            stage = ExamScreenStage.EXAM_RESULTS,
+            isTimerActive = false,
+            isSubmitted = true
+        )
+    }
+
+    fun retakeWaecJambExam() {
+        examTimerJob?.cancel()
+        val curr = waecJambState.value
+        val resetQuestions = curr.questions.map { it.copy(userSelectedIndex = null, isFlagged = false) }
+        val timedSec = curr.config.timedMinutes * 60
+        waecJambState.value = curr.copy(
+            stage = ExamScreenStage.ACTIVE_EXAM,
+            questions = resetQuestions,
+            currentQuestionIndex = 0,
+            secondsRemaining = timedSec,
+            totalTimeSeconds = timedSec,
+            isTimerActive = curr.config.mode == ExamPrepMode.MOCK_EXAM,
+            isSubmitted = false
+        )
+        if (curr.config.mode == ExamPrepMode.MOCK_EXAM) {
+            startExamTimer()
+        }
+    }
+
+    fun proceedFromWaecJambGetStarted() {
+        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.SELECTION_SETUP)
+    }
+
+    fun backToWaecJambGetStarted() {
+        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.GET_STARTED)
+    }
+
+    fun openWaecJambPrep() {
+        voiceManager.stopSpeaking()
+        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.GET_STARTED)
+        navigateTo(AppScreen.EXAM_PREP)
+    }
+
+    fun openAuthScreen(isLoginMode: Boolean) {
+        authState.value = authState.value.copy(isLoginMode = isLoginMode, error = null)
+        navigateTo(AppScreen.AUTH)
+    }
+
+    fun resetWaecJambToSetup() {
+        examTimerJob?.cancel()
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            stage = ExamScreenStage.SELECTION_SETUP,
+            isTimerActive = false,
+            isSubmitted = false,
+            currentQuestionIndex = 0
         )
     }
 }
