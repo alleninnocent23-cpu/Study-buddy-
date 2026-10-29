@@ -164,6 +164,50 @@ object GeminiClient {
         }
     }
 
+    fun getFieldPersonalizationDirective(subject: String): String {
+        val s = subject.trim().lowercase()
+        return when {
+            s.contains("math") -> """
+            FIELD OF STUDY: MATHEMATICS
+            - Present rigorous, step-by-step mathematical reasoning and algebraic manipulation.
+            - Explicitly state theorems, formulas, and definitions before applying them.
+            - Show all intermediate arithmetic clearly without skipping steps.
+            - Verify the solution (e.g. plug values back into equations).
+            """.trimIndent()
+            s.contains("science") || s.contains("physics") || s.contains("chemistry") || s.contains("biology") -> """
+            FIELD OF STUDY: SCIENCE ($subject)
+            - Anchor explanations in fundamental scientific principles and physical laws.
+            - Include standard SI units, chemical reactions, physical vectors, or biological systems.
+            - Provide clear real-world scientific analogies and laboratory/experimental context.
+            """.trimIndent()
+            s.contains("history") -> """
+            FIELD OF STUDY: HISTORY
+            - Provide accurate chronological order, timelines, key dates, and historical figures.
+            - Emphasize socio-political causes and effects, historical motivations, and long-term consequences.
+            - Use objective historical analysis grounded in documented primary and secondary evidence.
+            """.trimIndent()
+            s.contains("english") || s.contains("literature") -> """
+            FIELD OF STUDY: ENGLISH & LITERATURE
+            - Focus on rhetorical devices, thematic analysis, tone, essay architecture, and grammar syntax.
+            - Provide textual examples, model outlines, and precise vocabulary breakdown.
+            """.trimIndent()
+            s.contains("computer") || s.contains("coding") || s.contains("cs") -> """
+            FIELD OF STUDY: COMPUTER SCIENCE
+            - Focus on algorithmic efficiency (Big-O time and space complexity), clean code logic, and data structures.
+            - Break down pseudocode or code implementations with structured comments and edge cases.
+            """.trimIndent()
+            s.contains("economics") || s.contains("commerce") || s.contains("business") -> """
+            FIELD OF STUDY: ECONOMICS & COMMERCE
+            - Anchor explanations in market supply/demand, elasticity, financial ledger accounting, or monetary/fiscal concepts.
+            - Show financial formulas and calculations step-by-step.
+            """.trimIndent()
+            else -> """
+            FIELD OF STUDY: $subject
+            - Deliver structured, textbook-grade pedagogical explanations tailored to $subject.
+            """.trimIndent()
+        }
+    }
+
     suspend fun explainTopic(topic: String, subject: String, gradeLevel: String): Result<ExplanationResult> = withContext(Dispatchers.IO) {
         val directReply = getDirectConversationalResponse(topic)
         if (directReply != null) {
@@ -178,12 +222,14 @@ object GeminiClient {
         }
 
         val isConversational = isConversationalQuery(topic)
+        val fieldDirective = getFieldPersonalizationDirective(subject)
         val prompt = if (isConversational) {
             """
             You are Study Buddy, a warm, intelligent, and encouraging school tutor speaking to a student.
             The student said: "$topic"
+            Student's active field of study: $subject
             Respond naturally, warmly, and helpfully in 2-3 sentences.
-            Ask what academic problem, homework worksheet, or subject they need help with today.
+            Ask what academic problem, homework worksheet, or $subject topic they need help with today.
             CRITICAL: Do NOT use LaTeX math code, do NOT use section headers (like 1. Overview), and do NOT use emojis.
             End your response with:
             [DIAGRAM:none:none]
@@ -192,8 +238,10 @@ object GeminiClient {
             """
             You are Study Buddy, an advanced, highly knowledgeable, and professional school tutor.
             Topic: $topic
-            Subject: $subject
+            Subject / Field of Study: $subject
             Student Grade: $gradeLevel
+            
+            $fieldDirective
             
             Provide a clean, rigorous, professional academic teaching explanation.
             CRITICAL FORMATTING INSTRUCTIONS:
@@ -303,7 +351,7 @@ object GeminiClient {
         }
     }
 
-    suspend fun scanHomeworkImage(bitmap: Bitmap, contextNote: String = ""): Result<ExplanationResult> = withContext(Dispatchers.IO) {
+    suspend fun scanHomeworkImage(bitmap: Bitmap, contextNote: String = "", subject: String = ""): Result<ExplanationResult> = withContext(Dispatchers.IO) {
         val apiKey = getEffectiveApiKey()
         if (apiKey.isEmpty()) {
             return@withContext Result.failure(
@@ -312,9 +360,11 @@ object GeminiClient {
         }
 
         val base64Image = bitmapToBase64(bitmap)
+        val fieldDirective = if (subject.isNotBlank()) getFieldPersonalizationDirective(subject) else ""
         val prompt = """
             You are Study Buddy Homework Assistant. 
             Examine this photo of a student's homework, worksheet, or problem.
+            ${if (subject.isNotBlank()) "Student Field of Study: $subject\n$fieldDirective" else ""}
             Provide a clean, rigorous, professional academic teaching explanation.
             CRITICAL FORMATTING INSTRUCTIONS:
             - NEVER use LaTeX math delimiters (STRICTLY FORBIDDEN: do not write $$, $, \(, \), \[, \], or ?$$()).
@@ -772,18 +822,29 @@ object GeminiClient {
         examType: ExamType,
         subject: String,
         selectedYear: Int? = null,
+        yearStart: Int = 1997,
+        yearEnd: Int = 2026,
         topic: String = "All Topics",
         difficulty: String = "Mixed",
         count: Int = 10
     ): Result<List<WaecJambQuestion>> = withContext(Dispatchers.IO) {
         val apiKey = getEffectiveApiKey()
         if (apiKey.isEmpty()) {
-            val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+            val fallback = WaecJambQuestionBank.getQuestions(
+                examType = examType,
+                subject = subject,
+                selectedYear = selectedYear,
+                yearStart = yearStart,
+                yearEnd = yearEnd,
+                topic = topic,
+                difficulty = difficulty,
+                count = count
+            )
             return@withContext Result.success(fallback)
         }
 
         val examLabel = if (examType == ExamType.WAEC) "WAEC O'Level/A'Level" else "JAMB UTME"
-        val yearFocus = if (selectedYear != null) "$selectedYear" else "1997-2026"
+        val yearFocus = if (selectedYear != null) "$selectedYear" else "$yearStart to $yearEnd (spanning 1997 to 2026)"
 
         val prompt = """
             You are an intelligent WAEC and JAMB exam preparation system.
@@ -853,7 +914,16 @@ object GeminiClient {
 
             if (!response.isSuccessful) {
                 Log.w(TAG, "Gemini API error, falling back to local question bank: $responseBody")
-                val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+                val fallback = WaecJambQuestionBank.getQuestions(
+                    examType = examType,
+                    subject = subject,
+                    selectedYear = selectedYear,
+                    yearStart = yearStart,
+                    yearEnd = yearEnd,
+                    topic = topic,
+                    difficulty = difficulty,
+                    count = count
+                )
                 return@withContext Result.success(fallback)
             }
 
@@ -938,11 +1008,31 @@ object GeminiClient {
             if (list.isNotEmpty()) {
                 Result.success(list)
             } else {
-                Result.success(WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count))
+                Result.success(
+                    WaecJambQuestionBank.getQuestions(
+                        examType = examType,
+                        subject = subject,
+                        selectedYear = selectedYear,
+                        yearStart = yearStart,
+                        yearEnd = yearEnd,
+                        topic = topic,
+                        difficulty = difficulty,
+                        count = count
+                    )
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error generating WAEC/JAMB questions: ${e.message}", e)
-            val fallback = WaecJambQuestionBank.getQuestions(examType, subject, selectedYear, topic, difficulty, count)
+            val fallback = WaecJambQuestionBank.getQuestions(
+                examType = examType,
+                subject = subject,
+                selectedYear = selectedYear,
+                yearStart = yearStart,
+                yearEnd = yearEnd,
+                topic = topic,
+                difficulty = difficulty,
+                count = count
+            )
             Result.success(fallback)
         }
     }

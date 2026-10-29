@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,10 +37,12 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -524,66 +527,130 @@ fun QuizGeneratorScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // Navigation Buttons: [Previous] [Next / Submit]
+                    // XP Meter Bar
+                    val earnedXp = answeredCount * 10
+                    val totalXpPossible = totalQuestions * 10
+                    val xpProgressFraction = if (totalXpPossible > 0) earnedXp.toFloat() / totalXpPossible.toFloat() else 0f
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF141923),
+                        border = BorderStroke(1.dp, Color(0xFF2B3A52)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stars,
+                                contentDescription = null,
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "XP METER",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            LinearProgressIndicator(
+                                progress = { xpProgressFraction },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(6.dp)
+                                    .clip(CircleShape),
+                                color = Color(0xFFF59E0B),
+                                trackColor = Color(0xFF0D121B)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "+$earnedXp / $totalXpPossible XP",
+                                color = PureWhite,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Navigation Buttons: [Previous (Black w/ white border)] [Submit (White)] [Next (Black w/ white border)]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Previous Button (Left) - Black with white border
                         OutlinedButton(
                             onClick = onPrevQuestion,
                             enabled = currentIndex > 0,
                             shape = RoundedCornerShape(8.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(if (currentIndex > 0) BorderLight else BorderSubtle)
+                            border = BorderStroke(1.dp, if (currentIndex > 0) PureWhite else BorderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = TrueBlack,
+                                contentColor = if (currentIndex > 0) PureWhite else TextSubtle
                             ),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (currentIndex > 0) PureWhite else TextSubtle)
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (currentIndex > 0) PureWhite else TextSubtle
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Previous", color = if (currentIndex > 0) PureWhite else TextSubtle, fontSize = 12.sp)
+                            Text("Prev", color = if (currentIndex > 0) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                        // SUBMIT BUTTON IN THE CENTER - White background with black text/icon
+                        Button(
+                            onClick = onSubmitQuiz,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PureWhite,
+                                contentColor = TrueBlack
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(44.dp)
+                                .testTag("quiz_submit_button")
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = TrueBlack)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Submit", color = TrueBlack, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
 
-                        if (currentIndex < totalQuestions - 1) {
-                            Button(
-                                onClick = onNextQuestion,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = PureWhite,
-                                    contentColor = TrueBlack
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("quiz_next_button")
-                            ) {
-                                Text("Next Question", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp), tint = TrueBlack)
-                            }
-                        } else {
-                            Button(
-                                onClick = onSubmitQuiz,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = PureWhite,
-                                    contentColor = TrueBlack
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("quiz_submit_button")
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = TrueBlack)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Submit Quiz", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                        // Next Button (Right) - Black with white border
+                        OutlinedButton(
+                            onClick = onNextQuestion,
+                            enabled = currentIndex < totalQuestions - 1,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (currentIndex < totalQuestions - 1) PureWhite else BorderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = TrueBlack,
+                                contentColor = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .testTag("quiz_next_button")
+                        ) {
+                            Text("Next", color = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle
+                            )
                         }
                     }
 
@@ -613,6 +680,7 @@ fun QuizGeneratorScreen(
             val totalQuestions = state.questions.size
             val percentage = if (totalQuestions > 0) (state.score * 100) / totalQuestions else 0
             val mistakesCount = totalQuestions - state.score
+            val isFailed = percentage < 50
 
             val performanceTier = when {
                 percentage >= 90 -> "Grade A - Outstanding Mastery!"
@@ -624,6 +692,112 @@ fun QuizGeneratorScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Top Header with X button to cancel
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "QUIZ PERFORMANCE REPORT",
+                    color = TextMutedGray,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                IconButton(
+                    onClick = onRetryQuiz,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(DarkSurface)
+                        .border(1.dp, BorderSubtle, CircleShape)
+                        .testTag("quiz_results_cancel_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel and Exit",
+                        tint = PureWhite,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Failure / "Someone Falls" Encouraging Banner: "You can do better" + "Try Again"
+            if (isFailed) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF261214),
+                    border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("💪", fontSize = 24.sp)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "You can do better!",
+                                        color = Color(0xFFFCA5A5),
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Score: $percentage% • Passing target not reached",
+                                        color = Color(0xFFF87171),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = onRetryQuiz,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFFFCA5A5), modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "Don't be discouraged! Every mistake is a powerful learning opportunity. Review the correct answers and explanations below, then try again to boost your score!",
+                            color = Color(0xFFFEE2E2),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Button(
+                            onClick = onRetryQuiz,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PureWhite,
+                                contentColor = TrueBlack
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("quiz_try_again_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Try Again", color = TrueBlack, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
             // Score Overview Card
             GlassCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -631,6 +805,27 @@ fun QuizGeneratorScreen(
                 backgroundColor = DarkSurface
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
+                    // XP Earned Banner in Score Card
+                    val earnedQuizXp = state.score * 10
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF141923),
+                        border = BorderStroke(1.dp, Color(0xFF2B3A52)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Stars, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("XP EARNED", color = Color(0xFFFBBF24), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("+$earnedQuizXp XP", color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically

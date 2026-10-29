@@ -29,16 +29,26 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Paid
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,7 +57,12 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,6 +73,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.window.Dialog
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +93,7 @@ import com.example.ui.components.LoopingVideoPlayer
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.ChatGptPillDark
+import com.example.ui.theme.ChatGptPlusStarBlue
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
@@ -91,7 +109,9 @@ fun WaecJambScreen(
     onExitExamPrep: () -> Unit,
     onSelectExam: (ExamType) -> Unit,
     onSelectSubject: (String) -> Unit,
+    onSelectFacultyTrack: (String) -> Unit = {},
     onSelectYear: (Int?) -> Unit,
+    onSelectYearRange: (start: Int, end: Int) -> Unit = { _, _ -> },
     onSelectTopic: (String) -> Unit,
     onSelectDifficulty: (String) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
@@ -127,7 +147,9 @@ fun WaecJambScreen(
                     onBack = onBackToGetStarted,
                     onSelectExam = onSelectExam,
                     onSelectSubject = onSelectSubject,
+                    onSelectFacultyTrack = onSelectFacultyTrack,
                     onSelectYear = onSelectYear,
+                    onSelectYearRange = onSelectYearRange,
                     onSelectTopic = onSelectTopic,
                     onSelectDifficulty = onSelectDifficulty,
                     onSelectMode = onSelectMode,
@@ -364,7 +386,9 @@ private fun ExamSelectionSetupView(
     onBack: () -> Unit,
     onSelectExam: (ExamType) -> Unit,
     onSelectSubject: (String) -> Unit,
+    onSelectFacultyTrack: (String) -> Unit,
     onSelectYear: (Int?) -> Unit,
+    onSelectYearRange: (start: Int, end: Int) -> Unit,
     onSelectTopic: (String) -> Unit,
     onSelectDifficulty: (String) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
@@ -374,6 +398,25 @@ private fun ExamSelectionSetupView(
     val scrollState = rememberScrollState()
     val availableTopics = WaecJambQuestionBank.allTopicsBySubject[state.config.subject]
         ?: listOf("All Topics")
+
+    var showSubjectDialog by remember { mutableStateOf(false) }
+    var activeDialogTrack by remember { mutableStateOf("All") } // "All", "Science", "Art", "Commercial"
+
+    var sliderRange by remember(state.config.yearStart, state.config.yearEnd) {
+        mutableStateOf(state.config.yearStart.toFloat()..state.config.yearEnd.toFloat())
+    }
+
+    if (showSubjectDialog) {
+        SubjectSelectionDialog(
+            track = activeDialogTrack,
+            selectedSubject = state.config.subject,
+            onDismiss = { showSubjectDialog = false },
+            onSelectSubject = { sub, track ->
+                onSelectSubject(sub)
+                onSelectFacultyTrack(track)
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -435,7 +478,7 @@ private fun ExamSelectionSetupView(
             letterSpacing = (-0.5).sp
         )
         Text(
-            text = "Choose your exam, year, and subject to begin practicing",
+            text = "Choose your exam, subject inputs, and drag year range to start",
             color = TextMutedGray,
             fontSize = 12.sp,
             textAlign = TextAlign.Center
@@ -480,80 +523,258 @@ private fun ExamSelectionSetupView(
             )
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // --- SUBJECT SELECTOR ---
+        // --- SUBJECT INPUTS ---
+        if (state.config.examType == ExamType.WAEC) {
+            // WAEC MODE: All subjects in a single interactive input
+            SubjectInputField(
+                label = "ALL SUBJECTS INPUT",
+                subject = state.config.subject,
+                subtitle = "Tap to view and select from all WAEC subjects",
+                icon = Icons.Default.School,
+                isActive = true,
+                onClick = {
+                    activeDialogTrack = "All"
+                    showSubjectDialog = true
+                },
+                testTag = "waec_subject_input"
+            )
+        } else {
+            // JAMB MODE: Science, Art, and Commercial subjects in distinct inputs
+            Text(
+                text = "JAMB FACULTY SUBJECT INPUTS",
+                color = TextSubtle,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+            )
+
+            val isScienceActive = WaecJambQuestionBank.scienceSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
+            val isArtActive = WaecJambQuestionBank.artSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
+            val isCommercialActive = WaecJambQuestionBank.commercialSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
+
+            // 1. Science Input
+            SubjectInputField(
+                label = "SCIENCE SUBJECTS INPUT",
+                subject = if (isScienceActive) state.config.subject else "Select Science Subject",
+                subtitle = if (isScienceActive) "Active Selection • Tap to switch" else "Physics, Chemistry, Biology, Mathematics, Agric...",
+                icon = Icons.Default.Science,
+                isActive = isScienceActive,
+                onClick = {
+                    activeDialogTrack = "Science"
+                    showSubjectDialog = true
+                },
+                testTag = "jamb_science_subject_input"
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 2. Art & Humanities Input
+            SubjectInputField(
+                label = "ART & HUMANITIES SUBJECTS INPUT",
+                subject = if (isArtActive) state.config.subject else "Select Art & Humanities Subject",
+                subtitle = if (isArtActive) "Active Selection • Tap to switch" else "Literature, Government, History, CRS, IRS, French...",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                isActive = isArtActive,
+                onClick = {
+                    activeDialogTrack = "Art"
+                    showSubjectDialog = true
+                },
+                testTag = "jamb_art_subject_input"
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 3. Commercial Input
+            SubjectInputField(
+                label = "COMMERCIAL SUBJECTS INPUT",
+                subject = if (isCommercialActive) state.config.subject else "Select Commercial Subject",
+                subtitle = if (isCommercialActive) "Active Selection • Tap to switch" else "Economics, Commerce, Principles of Accounts, Marketing...",
+                icon = Icons.Default.Paid,
+                isActive = isCommercialActive,
+                onClick = {
+                    activeDialogTrack = "Commercial"
+                    showSubjectDialog = true
+                },
+                testTag = "jamb_commercial_subject_input"
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Compulsory English Language Chip
+            Surface(
+                onClick = {
+                    onSelectSubject("English Language")
+                    onSelectFacultyTrack("General")
+                },
+                shape = RoundedCornerShape(10.dp),
+                color = if (state.config.subject == "English Language") PureWhite else DarkSurface,
+                border = BorderStroke(1.dp, if (state.config.subject == "English Language") PureWhite else BorderSubtle),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("jamb_compulsory_english_chip")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = if (state.config.subject == "English Language") TrueBlack else Color(0xFF4ADE80),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "English Language (Compulsory for All JAMB Tracks)",
+                            color = if (state.config.subject == "English Language") TrueBlack else PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Mandatory CBT section for all faculty candidates",
+                            color = if (state.config.subject == "English Language") TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // --- YEAR RANGE DRAG LINE (1997 - 2026) ---
         Text(
-            text = "SUBJECT",
+            text = "EXAM YEAR RANGE (1997 - 2026)",
             color = TextSubtle,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.sp,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp)
+                .padding(bottom = 6.dp)
         )
 
-        FlowRow(
+        // Header with Drag Line Value Badge
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            WaecJambQuestionBank.allSubjects.forEach { sub ->
-                val isSel = state.config.subject == sub
-                Surface(
-                    onClick = { onSelectSubject(sub) },
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isSel) PureWhite else DarkSurface,
-                    border = BorderStroke(1.dp, if (isSel) PureWhite else BorderSubtle),
-                    modifier = Modifier.testTag("subject_chip_$sub")
+            Text(
+                text = "Drag line to adjust year span",
+                color = TextMutedGray,
+                fontSize = 11.sp
+            )
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF1E293B),
+                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = sub,
-                        color = if (isSel) TrueBlack else PureWhite,
+                        text = if (state.config.yearStart == state.config.yearEnd) {
+                            "Year: ${state.config.yearStart}"
+                        } else {
+                            "${state.config.yearStart} – ${state.config.yearEnd} (${state.config.yearEnd - state.config.yearStart + 1} Years)"
+                        },
+                        color = PureWhite,
                         fontSize = 12.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // --- YEAR FILTER (1997 - 2026) ---
-        Text(
-            text = "PAST PAPER YEAR (1997 - 2026)",
-            color = TextSubtle,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp,
+        // The RangeSlider Drag Line
+        RangeSlider(
+            value = sliderRange,
+            onValueChange = { range ->
+                sliderRange = range
+                val start = range.start.roundToInt().coerceIn(1997, 2026)
+                val end = range.endInclusive.roundToInt().coerceIn(start, 2026)
+                onSelectYearRange(start, end)
+            },
+            valueRange = 1997f..2026f,
+            steps = 28, // 2026 - 1997 - 1 = 28 tick steps
+            colors = SliderDefaults.colors(
+                thumbColor = PureWhite,
+                activeTrackColor = PureWhite,
+                inactiveTrackColor = BorderSubtle,
+                activeTickColor = TrueBlack,
+                inactiveTickColor = BorderLight
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp)
+                .padding(horizontal = 4.dp)
+                .testTag("year_range_drag_line")
         )
 
-        val popularYears = listOf(null, 2024, 2023, 2022, 2021, 2020, 2018, 2015, 2010, 2005, 2000, 1999)
+        // Year Scale Markers below Drag Line
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("1997", color = TextSubtle, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("2005", color = TextSubtle, fontSize = 10.sp)
+            Text("2015", color = TextSubtle, fontSize = 10.sp)
+            Text("2020", color = TextSubtle, fontSize = 10.sp)
+            Text("2026", color = TextSubtle, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Quick Year Range Preset Chips
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            popularYears.forEach { yr ->
-                val isSel = state.config.selectedYear == yr
-                val label = if (yr == null) "All Years (1997-2026)" else "$yr"
+            val presets = listOf(
+                Triple("1997 – 2026 (All)", 1997, 2026),
+                Triple("2020 – 2026 (Recent)", 2020, 2026),
+                Triple("2015 – 2024", 2015, 2024),
+                Triple("2010 – 2019", 2010, 2019),
+                Triple("2000 – 2009", 2000, 2009),
+                Triple("1997 – 1999", 1997, 1999),
+                Triple("2024 Only", 2024, 2024)
+            )
+            presets.forEach { (label, startY, endY) ->
+                val isPresetActive = state.config.yearStart == startY && state.config.yearEnd == endY
                 Surface(
-                    onClick = { onSelectYear(yr) },
+                    onClick = {
+                        sliderRange = startY.toFloat()..endY.toFloat()
+                        onSelectYearRange(startY, endY)
+                    },
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isSel) PureWhite else DarkSurface,
-                    border = BorderStroke(1.dp, if (isSel) PureWhite else BorderSubtle)
+                    color = if (isPresetActive) PureWhite else DarkSurface,
+                    border = BorderStroke(1.dp, if (isPresetActive) PureWhite else BorderSubtle)
                 ) {
                     Text(
                         text = label,
-                        color = if (isSel) TrueBlack else PureWhite,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                        color = if (isPresetActive) TrueBlack else PureWhite,
+                        fontSize = 11.sp,
+                        fontWeight = if (isPresetActive) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                     )
                 }
             }
@@ -636,11 +857,11 @@ private fun ExamSelectionSetupView(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // --- QUESTION COUNT ---
+        // --- QUESTION COUNT (MATCHING QUIZ GENERATOR: 10, 25, 50) ---
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "NUMBER OF QUESTIONS",
@@ -649,22 +870,56 @@ private fun ExamSelectionSetupView(
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1E2838),
+                border = BorderStroke(1.dp, ChatGptPlusStarBlue)
+            ) {
+                Text(
+                    text = "50-Question Exam Available",
+                    color = ChatGptPlusStarBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(5, 10, 15, 20, 40).forEach { cnt ->
-                    val isSel = state.config.questionCount == cnt
-                    Surface(
-                        onClick = { onSelectQuestionCount(cnt) },
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSel) PureWhite else DarkSurface,
-                        border = BorderStroke(1.dp, if (isSel) PureWhite else BorderSubtle)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(10, 25, 50).forEach { count ->
+                val isSel = state.config.questionCount == count
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, if (isSel) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
+                        .clickable { onSelectQuestionCount(count) },
+                    color = if (isSel) PureWhite else TrueBlack
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (count == 50) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = if (isSel) TrueBlack else ChatGptPlusStarBlue,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                         Text(
-                            text = "$cnt",
+                            text = "$count Qs",
                             color = if (isSel) TrueBlack else PureWhite,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
@@ -1167,45 +1422,132 @@ private fun ActiveExamView(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Bottom Navigation Controls
+        // XP Meter Bar in Active Exam
+        val answeredExamCount = state.questions.count { it.userSelectedIndex != null }
+        val totalExamQuestions = state.questions.size
+        val earnedExamXp = answeredExamCount * 10
+        val totalPossibleExamXp = totalExamQuestions * 10
+        val examXpFraction = if (totalPossibleExamXp > 0) earnedExamXp.toFloat() / totalPossibleExamXp.toFloat() else 0f
+
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFF141923),
+            border = BorderStroke(1.dp, Color(0xFF2B3A52)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Stars,
+                    contentDescription = null,
+                    tint = Color(0xFFFBBF24),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "XP METER",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                LinearProgressIndicator(
+                    progress = { examXpFraction },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(CircleShape),
+                    color = Color(0xFFF59E0B),
+                    trackColor = Color(0xFF0D121B)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "+$earnedExamXp / $totalPossibleExamXp XP",
+                    color = PureWhite,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Bottom Navigation Controls with Centered Submit Button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Previous Button (Left) - Black with white border
             OutlinedButton(
                 onClick = onPrev,
                 enabled = state.currentQuestionIndex > 0,
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, BorderSubtle),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = PureWhite)
+                border = BorderStroke(1.dp, if (state.currentQuestionIndex > 0) PureWhite else BorderSubtle),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = TrueBlack,
+                    contentColor = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle
+                )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Previous", fontSize = 12.sp)
+                Text("Previous", color = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
 
-            if (state.currentQuestionIndex < state.questions.size - 1) {
-                Button(
-                    onClick = onNext,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = TrueBlack)
-                ) {
-                    Text("Next", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-            } else {
-                Button(
-                    onClick = onSubmit,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E), contentColor = TrueBlack),
-                    modifier = Modifier.testTag("submit_exam_button")
-                ) {
-                    Text("Submit Exam", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+            // SUBMIT BUTTON IN THE CENTER - White background with black text/icon
+            Button(
+                onClick = onSubmit,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PureWhite,
+                    contentColor = TrueBlack
+                ),
+                modifier = Modifier
+                    .weight(1.3f)
+                    .height(44.dp)
+                    .testTag("submit_exam_button")
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Submit Exam", color = TrueBlack, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Next Button (Right) - Black with white border
+            OutlinedButton(
+                onClick = onNext,
+                enabled = state.currentQuestionIndex < state.questions.size - 1,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else BorderSubtle),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = TrueBlack,
+                    contentColor = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .testTag("next_exam_question_button")
+            ) {
+                Text("Next", color = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle
+                )
             }
         }
     }
@@ -1228,19 +1570,127 @@ private fun ExamResultsView(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(20.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        // Top Header Row with X Cancel Button ("up the display")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "EXAM PERFORMANCE REPORT",
+                color = TextMutedGray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            IconButton(
+                onClick = onNewExam,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(DarkSurface)
+                    .border(1.dp, BorderSubtle, CircleShape)
+                    .testTag("exam_results_cancel_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel and Exit",
+                    tint = PureWhite,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        val isFailed = state.scorePercentage < 50
+
+        // Failure / "Someone Falls" Encouraging Banner: "You can do better" + "Try Again"
+        if (isFailed) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF261214),
+                border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("💪", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "You can do better!",
+                                    color = Color(0xFFFCA5A5),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Score: ${state.scorePercentage}% • Passing target not reached",
+                                    color = Color(0xFFF87171),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = onNewExam,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFFFCA5A5), modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Every great scholar faced setbacks before mastery. Review the detailed explanations and solutions below, then take another attempt. You've got this!",
+                        color = Color(0xFFFEE2E2),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = onRetake,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PureWhite,
+                            contentColor = TrueBlack
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("exam_try_again_button")
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Try Again", color = TrueBlack, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         Icon(
             imageVector = Icons.Default.School,
             contentDescription = null,
             tint = Color(0xFF67EEF8),
-            modifier = Modifier.size(54.dp)
+            modifier = Modifier.size(48.dp)
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
             text = "EXAM REPORT & ANALYTICS",
@@ -1256,7 +1706,7 @@ private fun ExamResultsView(
             fontSize = 12.sp
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // Main Score Card
         GlassCard(
@@ -1269,6 +1719,27 @@ private fun ExamResultsView(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // XP Earned Banner
+                val earnedExamXp = state.correctCount * 10
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF141923),
+                    border = BorderStroke(1.dp, Color(0xFF2B3A52)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Stars, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("EXAM XP EARNED", color = Color(0xFFFBBF24), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text("+$earnedExamXp XP", color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 Text(
                     text = "${state.correctCount} / ${state.questions.size}",
                     color = PureWhite,
@@ -1418,3 +1889,270 @@ private fun ExamResultsView(
         Spacer(modifier = Modifier.height(30.dp))
     }
 }
+
+/**
+ * Clickable input container for Subject selection (mimics an interactive input field).
+ */
+@Composable
+private fun SubjectInputField(
+    label: String,
+    subject: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isActive: Boolean = true,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            color = TextSubtle,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(12.dp),
+            color = DarkSurface,
+            border = BorderStroke(1.dp, if (isActive) PureWhite else BorderSubtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(testTag)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) PureWhite.copy(alpha = 0.15f) else TrueBlack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = PureWhite,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = subject,
+                        color = PureWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = TextMutedGray,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = "Expand",
+                    tint = PureWhite,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Dialog displaying subjects list with search and faculty categorization.
+ */
+@Composable
+private fun SubjectSelectionDialog(
+    track: String, // "All", "Science", "Art", "Commercial"
+    selectedSubject: String,
+    onDismiss: () -> Unit,
+    onSelectSubject: (subject: String, track: String) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+
+    val rawList = when (track) {
+        "Science" -> WaecJambQuestionBank.scienceSubjects
+        "Art" -> WaecJambQuestionBank.artSubjects
+        "Commercial" -> WaecJambQuestionBank.commercialSubjects
+        else -> WaecJambQuestionBank.allSubjects
+    }
+
+    val filteredList = rawList.filter {
+        it.contains(searchQuery.trim(), ignoreCase = true)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = DarkSurface,
+            border = BorderStroke(1.dp, BorderSubtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 420.dp)
+                .height(520.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(18.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = when (track) {
+                                "Science" -> "Select Science Subject"
+                                "Art" -> "Select Art Subject"
+                                "Commercial" -> "Select Commercial Subject"
+                                else -> "Select Exam Subject"
+                            },
+                            color = PureWhite,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${filteredList.size} subjects available",
+                            color = TextMutedGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = PureWhite,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search subject...", color = TextSubtle, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = TextMutedGray, modifier = Modifier.size(18.dp))
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = PureWhite,
+                        unfocusedBorderColor = BorderSubtle,
+                        cursorColor = PureWhite
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("subject_search_field")
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Scrollable Subject List
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (filteredList.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No subjects found matching '$searchQuery'", color = TextMutedGray, fontSize = 12.sp)
+                        }
+                    } else {
+                        filteredList.forEach { sub ->
+                            val isSelected = sub.equals(selectedSubject, ignoreCase = true)
+                            val subTrack = when {
+                                WaecJambQuestionBank.scienceSubjects.contains(sub) -> "Science"
+                                WaecJambQuestionBank.artSubjects.contains(sub) -> "Art"
+                                WaecJambQuestionBank.commercialSubjects.contains(sub) -> "Commercial"
+                                else -> "General"
+                            }
+
+                            Surface(
+                                onClick = {
+                                    onSelectSubject(sub, subTrack)
+                                    onDismiss()
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) PureWhite else TrueBlack,
+                                border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderSubtle),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("dialog_subject_item_$sub")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when (subTrack) {
+                                            "Science" -> Icons.Default.Science
+                                            "Art" -> Icons.AutoMirrored.Filled.MenuBook
+                                            "Commercial" -> Icons.Default.Paid
+                                            else -> Icons.Default.School
+                                        },
+                                        contentDescription = null,
+                                        tint = if (isSelected) TrueBlack else TextMutedGray,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = sub,
+                                            color = if (isSelected) TrueBlack else PureWhite,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "$subTrack Track",
+                                            color = if (isSelected) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                        contentDescription = null,
+                                        tint = if (isSelected) TrueBlack else BorderSubtle,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

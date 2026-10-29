@@ -49,9 +49,10 @@ data class WaecJambQuestion(
 data class WaecJambConfig(
     val examType: ExamType = ExamType.WAEC,
     val subject: String = "Mathematics",
+    val facultyTrack: String = "Science",
     val yearStart: Int = 1997,
     val yearEnd: Int = 2026,
-    val selectedYear: Int? = 2024,
+    val selectedYear: Int? = null,
     val session: ExamSession = ExamSession.ALL,
     val topic: String = "All Topics",
     val difficulty: String = "Mixed",

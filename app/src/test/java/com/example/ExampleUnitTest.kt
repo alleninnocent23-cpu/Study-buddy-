@@ -68,4 +68,79 @@ class ExampleUnitTest {
         assertEquals(2024, q.year)
         assertTrue(q.explanation.isNotEmpty())
     }
+
+    @Test
+    fun testSubjectSelectionRegistryAndDirectives() {
+        val mathField = com.example.ui.components.StudyFieldsRegistry.findByNameOrId("Mathematics")
+        assertEquals("Mathematics", mathField.name)
+        assertEquals("STEM", mathField.category)
+
+        val scienceField = com.example.ui.components.StudyFieldsRegistry.findByNameOrId("Science")
+        assertEquals("Science", scienceField.name)
+
+        val historyField = com.example.ui.components.StudyFieldsRegistry.findByNameOrId("History")
+        assertEquals("History", historyField.name)
+        assertEquals("Humanities", historyField.category)
+
+        // Check personalization directives
+        val mathDirective = com.example.data.api.GeminiClient.getFieldPersonalizationDirective("Mathematics")
+        assertTrue(mathDirective.contains("FIELD OF STUDY: MATHEMATICS"))
+
+        val scienceDirective = com.example.data.api.GeminiClient.getFieldPersonalizationDirective("Science")
+        assertTrue(scienceDirective.contains("FIELD OF STUDY: SCIENCE"))
+
+        val historyDirective = com.example.data.api.GeminiClient.getFieldPersonalizationDirective("History")
+        assertTrue(historyDirective.contains("FIELD OF STUDY: HISTORY"))
+    }
+
+    @Test
+    fun testWaecJambFacultiesAndYearRange1997To2026() {
+        // Test categorized subject lists
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.scienceSubjects.contains("Physics"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.scienceSubjects.contains("Chemistry"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.scienceSubjects.contains("Biology"))
+
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.artSubjects.contains("Literature in English"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.artSubjects.contains("Government"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.artSubjects.contains("Christian Religious Studies"))
+
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.commercialSubjects.contains("Economics"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.commercialSubjects.contains("Commerce"))
+        assertTrue(com.example.data.repository.WaecJambQuestionBank.commercialSubjects.contains("Principles of Accounts"))
+
+        // Test year range from 1997 to 2026
+        val questions1997to2026 = com.example.data.repository.WaecJambQuestionBank.getQuestions(
+            examType = com.example.data.model.ExamType.JAMB,
+            subject = "Mathematics",
+            yearStart = 1997,
+            yearEnd = 2026,
+            selectedYear = null,
+            count = 15
+        )
+        assertTrue(questions1997to2026.isNotEmpty())
+        questions1997to2026.forEach { q ->
+            assertTrue(q.year in 1997..2026)
+            assertTrue(q.explanation.isNotBlank())
+            assertTrue(q.options.size == 4)
+        }
+
+        // Test individual past year
+        val questions1997 = com.example.data.repository.WaecJambQuestionBank.getQuestions(
+            examType = com.example.data.model.ExamType.JAMB,
+            subject = "Mathematics",
+            selectedYear = 1997,
+            count = 5
+        )
+        assertTrue(questions1997.isNotEmpty())
+        assertEquals(1997, questions1997.first().year)
+
+        val questions2026 = com.example.data.repository.WaecJambQuestionBank.getQuestions(
+            examType = com.example.data.model.ExamType.WAEC,
+            subject = "Economics",
+            selectedYear = 2026,
+            count = 5
+        )
+        assertTrue(questions2026.isNotEmpty())
+        assertEquals(2026, questions2026.first().year)
+    }
 }

@@ -77,10 +77,13 @@ import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.runtime.LaunchedEffect
 import com.example.ui.screens.PomodoroTimerScreen
 import com.example.ui.screens.QuizGeneratorScreen
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.School
+import com.example.ui.screens.AchievementCelebrationDialog
+import com.example.ui.screens.RewardsScreen
 import com.example.ui.screens.SettingsDialog
 import com.example.ui.screens.WaecJambScreen
 import com.example.ui.screens.WelcomeScreen
-import androidx.compose.material.icons.filled.School
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.ChatGptDrawerBg
@@ -130,6 +133,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     val quizState by viewModel.quizState.collectAsState()
     val pomodoroState by viewModel.pomodoroState.collectAsState()
     val waecJambState by viewModel.waecJambState.collectAsState()
+    val rewardsState by viewModel.rewardsState.collectAsState()
 
     val isSpeaking by viewModel.voiceManager.isSpeaking.collectAsState()
     val isListening by viewModel.voiceManager.isListening.collectAsState()
@@ -163,7 +167,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
         } else {
             when (currentScreen) {
                 AppScreen.AUTH -> viewModel.navigateTo(AppScreen.WELCOME)
-                AppScreen.SCANNER, AppScreen.QUIZ, AppScreen.HISTORY, AppScreen.POMODORO -> viewModel.navigateTo(AppScreen.TUTOR)
+                AppScreen.SCANNER, AppScreen.QUIZ, AppScreen.HISTORY, AppScreen.POMODORO, AppScreen.REWARDS -> viewModel.navigateTo(AppScreen.TUTOR)
                 AppScreen.EXAM_PREP -> {
                     when (waecJambState.stage) {
                         com.example.data.model.ExamScreenStage.ACTIVE_EXAM -> viewModel.resetWaecJambToSetup()
@@ -201,6 +205,13 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
 
     if (showGetPlusDialog) {
         GetPlusDialog(onDismiss = { showGetPlusDialog = false })
+    }
+
+    rewardsState.newlyUnlockedBadge?.let { badge ->
+        AchievementCelebrationDialog(
+            badge = badge,
+            onDismiss = { viewModel.dismissNewBadgeCelebration() }
+        )
     }
 
     // Modal Navigation Drawer (opened by the top-left 2-bar menu button)
@@ -303,6 +314,15 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                         isSelected = currentScreen == AppScreen.EXAM_PREP,
                         onClick = {
                             viewModel.openWaecJambPrep()
+                            scope.launch { drawerState.close() }
+                        }
+                    )
+                    DrawerNavItem(
+                        title = "Rewards & Badges",
+                        icon = Icons.Default.EmojiEvents,
+                        isSelected = currentScreen == AppScreen.REWARDS,
+                        onClick = {
+                            viewModel.openRewards()
                             scope.launch { drawerState.close() }
                         }
                     )
@@ -522,9 +542,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                 when (screen) {
                     AppScreen.WELCOME -> {
                         WelcomeScreen(
-                            onSignUp = { viewModel.openAuthScreen(isLoginMode = false) },
-                            onLogIn = { viewModel.openAuthScreen(isLoginMode = true) },
-                            onDemoLogin = { viewModel.continueAsDemoStudent() }
+                            onGetStarted = { viewModel.openAuthScreen(isLoginMode = false) }
                         )
                     }
 
@@ -661,7 +679,9 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onExitExamPrep = { viewModel.navigateTo(AppScreen.TUTOR) },
                             onSelectExam = { viewModel.updateWaecJambExam(it) },
                             onSelectSubject = { viewModel.updateWaecJambSubject(it) },
+                            onSelectFacultyTrack = { viewModel.updateWaecJambFacultyTrack(it) },
                             onSelectYear = { viewModel.updateWaecJambYear(it) },
+                            onSelectYearRange = { start, end -> viewModel.updateWaecJambYearRange(start, end) },
                             onSelectTopic = { viewModel.updateWaecJambTopic(it) },
                             onSelectDifficulty = { viewModel.updateWaecJambDifficulty(it) },
                             onSelectMode = { viewModel.updateWaecJambMode(it) },
@@ -677,6 +697,16 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onResetToSetup = { viewModel.resetWaecJambToSetup() },
                             onPlayAudio = { viewModel.playExplanation(it) },
                             onStopAudio = { viewModel.stopExplanationVoice() }
+                        )
+                    }
+
+                    AppScreen.REWARDS -> {
+                        RewardsScreen(
+                            state = rewardsState,
+                            onBack = { viewModel.navigateTo(AppScreen.TUTOR) },
+                            onDismissCelebration = { viewModel.dismissNewBadgeCelebration() },
+                            onStartQuizShortcut = { viewModel.navigateTo(AppScreen.QUIZ) },
+                            onStartExamShortcut = { viewModel.openWaecJambPrep() }
                         )
                     }
                 }

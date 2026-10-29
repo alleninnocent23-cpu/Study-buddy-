@@ -45,7 +45,8 @@ enum class AppScreen {
     QUIZ,
     HISTORY,
     POMODORO,
-    EXAM_PREP
+    EXAM_PREP,
+    REWARDS
 }
 
 enum class PomodoroMode(val displayName: String) {
@@ -163,6 +164,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val quizState = MutableStateFlow(QuizState())
     val pomodoroState = MutableStateFlow(PomodoroState())
     val waecJambState = MutableStateFlow(WaecJambState())
+    val rewardsState = MutableStateFlow(com.example.data.model.UserRewardsState())
+    private val unlockedBadgeIds = mutableSetOf<String>()
+    private var examsCompletedCount = 0
+    private var examDistinctionsCount = 0
+
     val pomodoroNotificationHelper = PomodoroNotificationHelper(application)
     private var pomodoroTimerJob: kotlinx.coroutines.Job? = null
     private var examTimerJob: kotlinx.coroutines.Job? = null
@@ -192,6 +198,45 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 _currentUserId.value = user.id
             }
         }
+
+        viewModelScope.launch {
+            savedSessions.collect { sessions ->
+                refreshRewards(sessions, savedQuizzes.value)
+            }
+        }
+
+        viewModelScope.launch {
+            savedQuizzes.collect { quizzes ->
+                refreshRewards(savedSessions.value, quizzes)
+            }
+        }
+    }
+
+    fun refreshRewards(
+        sessions: List<StudySessionEntity> = savedSessions.value,
+        quizzes: List<QuizEntity> = savedQuizzes.value
+    ) {
+        val (newRewards, newlyUnlocked) = com.example.data.repository.RewardsRepository.computeRewards(
+            sessions = sessions,
+            quizzes = quizzes,
+            examsCompleted = examsCompletedCount,
+            examDistinctions = examDistinctionsCount,
+            previouslyUnlockedBadgeIds = unlockedBadgeIds
+        )
+        if (newlyUnlocked != null) {
+            unlockedBadgeIds.add(newlyUnlocked.id)
+        }
+        rewardsState.value = newRewards
+    }
+
+    fun dismissNewBadgeCelebration() {
+        rewardsState.value = rewardsState.value.copy(newlyUnlockedBadge = null)
+    }
+
+    fun openRewards() {
+        voiceManager.stopSpeaking()
+        refreshRewards()
+        navigateTo(AppScreen.REWARDS)
     }
 
     fun navigateTo(screen: AppScreen) {
@@ -432,7 +477,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             val grade = _currentUser.value?.grade ?: "High School"
             val result = if (image != null) {
-                GeminiClient.scanHomeworkImage(image, promptText)
+                GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
             } else {
                 GeminiClient.explainTopic(promptText, state.selectedSubject, grade)
             }
@@ -1093,10 +1138,34 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
+    fun updateWaecJambFacultyTrack(track: String) {
+        val curr = waecJambState.value
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(facultyTrack = track)
+        )
+    }
+
     fun updateWaecJambYear(year: Int?) {
         val curr = waecJambState.value
         waecJambState.value = curr.copy(
-            config = curr.config.copy(selectedYear = year)
+            config = curr.config.copy(
+                selectedYear = year,
+                yearStart = year ?: 1997,
+                yearEnd = year ?: 2026
+            )
+        )
+    }
+
+    fun updateWaecJambYearRange(yearStart: Int, yearEnd: Int) {
+        val curr = waecJambState.value
+        val clampedStart = yearStart.coerceIn(1997, 2026)
+        val clampedEnd = yearEnd.coerceIn(clampedStart, 2026)
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(
+                yearStart = clampedStart,
+                yearEnd = clampedEnd,
+                selectedYear = if (clampedStart == clampedEnd) clampedStart else null
+            )
         )
     }
 
@@ -1136,18 +1205,22 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 examType = curr.config.examType,
                 subject = curr.config.subject,
                 selectedYear = curr.config.selectedYear,
+                yearStart = curr.config.yearStart,
+                yearEnd = curr.config.yearEnd,
                 topic = curr.config.topic,
                 difficulty = curr.config.difficulty,
                 count = curr.config.questionCount
             )
             val questions = questionsResult.getOrDefault(
                 WaecJambQuestionBank.getQuestions(
-                    curr.config.examType,
-                    curr.config.subject,
-                    curr.config.selectedYear,
-                    curr.config.topic,
-                    curr.config.difficulty,
-                    curr.config.questionCount
+                    examType = curr.config.examType,
+                    subject = curr.config.subject,
+                    selectedYear = curr.config.selectedYear,
+                    yearStart = curr.config.yearStart,
+                    yearEnd = curr.config.yearEnd,
+                    topic = curr.config.topic,
+                    difficulty = curr.config.difficulty,
+                    count = curr.config.questionCount
                 )
             )
 
@@ -1231,11 +1304,16 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun submitWaecJambExam() {
         examTimerJob?.cancel()
         val curr = waecJambState.value
+        examsCompletedCount++
+        if (curr.scorePercentage >= 80) {
+            examDistinctionsCount++
+        }
         waecJambState.value = curr.copy(
             stage = ExamScreenStage.EXAM_RESULTS,
             isTimerActive = false,
             isSubmitted = true
         )
+        refreshRewards()
     }
 
     fun retakeWaecJambExam() {

@@ -63,6 +63,9 @@ import com.example.ui.components.ChatGptInputBar
 import com.example.ui.components.ChatGptMessageItem
 import com.example.ui.components.ChatGptTopBar
 import com.example.ui.components.GetPlusDialog
+import com.example.ui.components.SubjectPersonalizationBadge
+import com.example.ui.components.SubjectSelectionDialog
+import com.example.ui.components.SubjectSelectionStrip
 import com.example.ui.components.VoiceModeDialog
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
@@ -183,52 +186,14 @@ fun AssignmentHelperScreen(
     }
 
     if (showSubjectFilterDialog) {
-        Dialog(onDismissRequest = { showSubjectFilterDialog = false }) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(1.dp, BorderLight, RoundedCornerShape(16.dp)),
-                color = DarkSurface
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "Filter School Subject",
-                        color = PureWhite,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    val subjects = listOf("All Subjects", "Mathematics", "Physics", "Chemistry", "Biology", "History", "English", "Computer Science")
-                    subjects.forEach { sub ->
-                        val isSelected = state.selectedSubject == sub
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    onSelectSubject(sub)
-                                    showSubjectFilterDialog = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = sub,
-                                color = if (isSelected) PureWhite else TextMutedGray,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isSelected) {
-                                Text("✓", color = PureWhite, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        SubjectSelectionDialog(
+            currentSubject = state.selectedSubject,
+            onSelectSubject = {
+                onSelectSubject(it)
+                showSubjectFilterDialog = false
+            },
+            onDismiss = { showSubjectFilterDialog = false }
+        )
     }
 
     // Attachment Picker Modal
@@ -364,9 +329,24 @@ fun AssignmentHelperScreen(
                 onSelectSubject = { showSubjectFilterDialog = true }
             )
 
+            // Subject / Field of Study Selection Strip
+            SubjectSelectionStrip(
+                selectedSubject = state.selectedSubject,
+                onSelectSubject = { onSelectSubject(it) },
+                onOpenFullSelector = { showSubjectFilterDialog = true }
+            )
+
             // Middle Content Area
             if (state.messages.isEmpty()) {
                 // Screenshot 1: Blank OLED Canvas with suggestion rows at the bottom
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SubjectPersonalizationBadge(
+                    selectedSubject = state.selectedSubject,
+                    onOpenSelector = { showSubjectFilterDialog = true },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+
                 Spacer(modifier = Modifier.weight(1f))
 
                 ChatGptEmptyPrompts(
