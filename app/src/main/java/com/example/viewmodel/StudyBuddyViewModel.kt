@@ -212,9 +212,12 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private var hasInitializedRewards = false
+
     fun refreshRewards(
         sessions: List<StudySessionEntity> = savedSessions.value,
-        quizzes: List<QuizEntity> = savedQuizzes.value
+        quizzes: List<QuizEntity> = savedQuizzes.value,
+        isTaskCompletionEvent: Boolean = false
     ) {
         val (newRewards, newlyUnlocked) = com.example.data.repository.RewardsRepository.computeRewards(
             sessions = sessions,
@@ -226,7 +229,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         if (newlyUnlocked != null) {
             unlockedBadgeIds.add(newlyUnlocked.id)
         }
-        rewardsState.value = newRewards
+
+        // Only pop up celebration dialog if this refresh was triggered by a genuine user task completion event
+        // (e.g. finishing a study session, submitting a quiz, submitting an exam), NOT on cold app launch
+        val celebrationBadge = if (isTaskCompletionEvent && hasInitializedRewards) newlyUnlocked else null
+        hasInitializedRewards = true
+
+        rewardsState.value = newRewards.copy(newlyUnlockedBadge = celebrationBadge)
     }
 
     fun dismissNewBadgeCelebration() {
@@ -513,6 +522,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                         diagramDataJson = explanation.diagramTitle
                     )
                 )
+                refreshRewards(isTaskCompletionEvent = true)
             }.onFailure { err ->
                 val fallback = getCuratedExplanation(promptText, state.selectedSubject)
                 val assistantMsg = ChatMessage(
@@ -540,6 +550,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         sendChatMessage()
     }
 
+    val isRecordingAudio = MutableStateFlow(false)
+
     fun startVoiceInput() {
         voiceManager.startListening { transcribedText ->
             if (transcribedText.isNotBlank()) {
@@ -548,7 +560,47 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /**
+     * 'Study Talk' in the blue button feature:
+     * Student speaks a question verbally and receives instantaneous audio feedback from the Gemini model.
+     */
+    fun startStudyTalk(spokenPrompt: String) {
+        if (spokenPrompt.isBlank()) return
+        tutorState.value = tutorState.value.copy(isVoiceModeActive = true)
+        sendChatMessage(overridePrompt = spokenPrompt)
+    }
+
+    /**
+     * Hold blue button to record audio and automatically send it to chat once released.
+     */
+    fun startHoldRecording() {
+        isRecordingAudio.value = true
+        voiceManager.stopSpeaking()
+        voiceManager.startListening { transcribedText ->
+            if (isRecordingAudio.value && transcribedText.isNotBlank()) {
+                isRecordingAudio.value = false
+                sendChatMessage(overridePrompt = transcribedText)
+            }
+        }
+    }
+
+    fun finishHoldRecording() {
+        if (!isRecordingAudio.value) return
+        isRecordingAudio.value = false
+        val currentRecognized = voiceManager.recognizedText.value.trim()
+        voiceManager.stopListening()
+        if (currentRecognized.isNotBlank()) {
+            sendChatMessage(overridePrompt = currentRecognized)
+        }
+    }
+
+    fun cancelHoldRecording() {
+        isRecordingAudio.value = false
+        voiceManager.stopListening()
+    }
+
     fun stopVoiceInput() {
+        isRecordingAudio.value = false
         voiceManager.stopListening()
     }
 
@@ -749,6 +801,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     totalQuestions = s.questions.size
                 )
             )
+            refreshRewards(isTaskCompletionEvent = true)
         }
     }
 
@@ -1133,8 +1186,50 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun updateWaecJambSubject(subject: String) {
         val curr = waecJambState.value
+        val updatedList = if (curr.config.selectedSubjects.contains(subject)) {
+            curr.config.selectedSubjects
+        } else {
+            (listOf(subject) + curr.config.selectedSubjects).distinct().take(10)
+        }
         waecJambState.value = curr.copy(
-            config = curr.config.copy(subject = subject, topic = "All Topics")
+            config = curr.config.copy(
+                subject = subject,
+                selectedSubjects = updatedList,
+                topic = "All Topics"
+            )
+        )
+    }
+
+    fun toggleWaecJambSubject(subject: String) {
+        val curr = waecJambState.value
+        val list = curr.config.selectedSubjects.toMutableList()
+        if (list.contains(subject)) {
+            if (list.size > 1) {
+                list.remove(subject)
+            }
+        } else {
+            if (list.size < 10) {
+                list.add(subject)
+            }
+        }
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(
+                selectedSubjects = list,
+                subject = list.firstOrNull() ?: subject,
+                topic = "All Topics"
+            )
+        )
+    }
+
+    fun setWaecJambSelectedSubjects(subjects: List<String>) {
+        val curr = waecJambState.value
+        val clamped = subjects.distinct().take(10)
+        waecJambState.value = curr.copy(
+            config = curr.config.copy(
+                selectedSubjects = clamped,
+                subject = clamped.firstOrNull() ?: "Mathematics",
+                topic = "All Topics"
+            )
         )
     }
 
@@ -1199,29 +1294,24 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun startWaecJambExam() {
         val curr = waecJambState.value
-        waecJambState.value = curr.copy(isLoading = true, statusMessage = "Loading verified past exam papers...")
+        val subjectsToPractice = if (curr.config.selectedSubjects.isNotEmpty()) {
+            curr.config.selectedSubjects
+        } else {
+            listOf(curr.config.subject)
+        }
+        waecJambState.value = curr.copy(
+            isLoading = true,
+            statusMessage = "Loading verified past exam papers for ${subjectsToPractice.size} subjects..."
+        )
         viewModelScope.launch {
-            val questionsResult = GeminiClient.generateWaecJambQuestions(
+            val questions = WaecJambQuestionBank.getMultiSubjectQuestions(
                 examType = curr.config.examType,
-                subject = curr.config.subject,
+                subjects = subjectsToPractice,
                 selectedYear = curr.config.selectedYear,
                 yearStart = curr.config.yearStart,
                 yearEnd = curr.config.yearEnd,
-                topic = curr.config.topic,
                 difficulty = curr.config.difficulty,
-                count = curr.config.questionCount
-            )
-            val questions = questionsResult.getOrDefault(
-                WaecJambQuestionBank.getQuestions(
-                    examType = curr.config.examType,
-                    subject = curr.config.subject,
-                    selectedYear = curr.config.selectedYear,
-                    yearStart = curr.config.yearStart,
-                    yearEnd = curr.config.yearEnd,
-                    topic = curr.config.topic,
-                    difficulty = curr.config.difficulty,
-                    count = curr.config.questionCount
-                )
+                totalCount = curr.config.questionCount
             )
 
             val timedSec = curr.config.timedMinutes * 60
@@ -1313,7 +1403,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             isTimerActive = false,
             isSubmitted = true
         )
-        refreshRewards()
+        refreshRewards(isTaskCompletionEvent = true)
     }
 
     fun retakeWaecJambExam() {

@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -109,6 +111,8 @@ fun WaecJambScreen(
     onExitExamPrep: () -> Unit,
     onSelectExam: (ExamType) -> Unit,
     onSelectSubject: (String) -> Unit,
+    onToggleSubject: (String) -> Unit = {},
+    onSetSelectedSubjects: (List<String>) -> Unit = {},
     onSelectFacultyTrack: (String) -> Unit = {},
     onSelectYear: (Int?) -> Unit,
     onSelectYearRange: (start: Int, end: Int) -> Unit = { _, _ -> },
@@ -134,49 +138,67 @@ fun WaecJambScreen(
             .fillMaxSize()
             .background(TrueBlack)
     ) {
-        when (state.stage) {
-            ExamScreenStage.GET_STARTED -> {
-                ExamGetStartedView(
-                    onGetStarted = onProceedFromGetStarted,
-                    onExit = onExitExamPrep
-                )
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                when (state.stage) {
+                    ExamScreenStage.GET_STARTED -> {
+                        ExamGetStartedView(
+                            onGetStarted = onProceedFromGetStarted,
+                            onExit = onExitExamPrep
+                        )
+                    }
+                    ExamScreenStage.SELECTION_SETUP -> {
+                        ExamSelectionSetupView(
+                            state = state,
+                            onBack = onBackToGetStarted,
+                            onSelectExam = onSelectExam,
+                            onSelectSubject = onSelectSubject,
+                            onToggleSubject = onToggleSubject,
+                            onSetSelectedSubjects = onSetSelectedSubjects,
+                            onSelectFacultyTrack = onSelectFacultyTrack,
+                            onSelectYear = onSelectYear,
+                            onSelectYearRange = onSelectYearRange,
+                            onSelectTopic = onSelectTopic,
+                            onSelectDifficulty = onSelectDifficulty,
+                            onSelectMode = onSelectMode,
+                            onSelectQuestionCount = onSelectQuestionCount,
+                            onNext = onStartExam
+                        )
+                    }
+                    ExamScreenStage.ACTIVE_EXAM -> {
+                        ActiveExamView(
+                            state = state,
+                            isSpeaking = isSpeaking,
+                            onSelectAnswer = onSelectAnswer,
+                            onNext = onNextQuestion,
+                            onPrev = onPrevQuestion,
+                            onJump = onJumpToQuestion,
+                            onToggleFlag = onToggleFlagQuestion,
+                            onSubmit = onSubmitExam,
+                            onExit = onResetToSetup,
+                            onPlayAudio = onPlayAudio,
+                            onStopAudio = onStopAudio
+                        )
+                    }
+                    ExamScreenStage.EXAM_RESULTS -> {
+                        ExamResultsView(
+                            state = state,
+                            onRetake = onRetakeExam,
+                            onNewExam = onResetToSetup
+                        )
+                    }
+                }
             }
-            ExamScreenStage.SELECTION_SETUP -> {
-                ExamSelectionSetupView(
-                    state = state,
-                    onBack = onBackToGetStarted,
-                    onSelectExam = onSelectExam,
-                    onSelectSubject = onSelectSubject,
-                    onSelectFacultyTrack = onSelectFacultyTrack,
-                    onSelectYear = onSelectYear,
-                    onSelectYearRange = onSelectYearRange,
-                    onSelectTopic = onSelectTopic,
-                    onSelectDifficulty = onSelectDifficulty,
-                    onSelectMode = onSelectMode,
-                    onSelectQuestionCount = onSelectQuestionCount,
-                    onNext = onStartExam
-                )
-            }
-            ExamScreenStage.ACTIVE_EXAM -> {
-                ActiveExamView(
-                    state = state,
-                    isSpeaking = isSpeaking,
-                    onSelectAnswer = onSelectAnswer,
-                    onNext = onNextQuestion,
-                    onPrev = onPrevQuestion,
-                    onJump = onJumpToQuestion,
-                    onToggleFlag = onToggleFlagQuestion,
-                    onSubmit = onSubmitExam,
-                    onExit = onResetToSetup,
-                    onPlayAudio = onPlayAudio,
-                    onStopAudio = onStopAudio
-                )
-            }
-            ExamScreenStage.EXAM_RESULTS -> {
-                ExamResultsView(
-                    state = state,
-                    onRetake = onRetakeExam,
-                    onNewExam = onResetToSetup
+
+            // Bottom bar to navigate from WAEC and JAMB to help study
+            if (state.stage != ExamScreenStage.GET_STARTED) {
+                WaecJambBottomStudyBar(
+                    currentExam = state.config.examType,
+                    onSelectExam = onSelectExam
                 )
             }
         }
@@ -386,6 +408,8 @@ private fun ExamSelectionSetupView(
     onBack: () -> Unit,
     onSelectExam: (ExamType) -> Unit,
     onSelectSubject: (String) -> Unit,
+    onToggleSubject: (String) -> Unit,
+    onSetSelectedSubjects: (List<String>) -> Unit,
     onSelectFacultyTrack: (String) -> Unit,
     onSelectYear: (Int?) -> Unit,
     onSelectYearRange: (start: Int, end: Int) -> Unit,
@@ -409,12 +433,9 @@ private fun ExamSelectionSetupView(
     if (showSubjectDialog) {
         SubjectSelectionDialog(
             track = activeDialogTrack,
-            selectedSubject = state.config.subject,
+            selectedSubjects = state.config.selectedSubjects,
             onDismiss = { showSubjectDialog = false },
-            onSelectSubject = { sub, track ->
-                onSelectSubject(sub)
-                onSelectFacultyTrack(track)
-            }
+            onToggleSubject = onToggleSubject
         )
     }
 
@@ -525,121 +546,253 @@ private fun ExamSelectionSetupView(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // --- SUBJECT INPUTS ---
-        if (state.config.examType == ExamType.WAEC) {
-            // WAEC MODE: All subjects in a single interactive input
-            SubjectInputField(
-                label = "ALL SUBJECTS INPUT",
-                subject = state.config.subject,
-                subtitle = "Tap to view and select from all WAEC subjects",
-                icon = Icons.Default.School,
-                isActive = true,
-                onClick = {
-                    activeDialogTrack = "All"
-                    showSubjectDialog = true
-                },
-                testTag = "waec_subject_input"
-            )
-        } else {
-            // JAMB MODE: Science, Art, and Commercial subjects in distinct inputs
+        // --- 4 - 10 SUBJECTS SELECTION SYSTEM (BOTH WAEC & JAMB) ---
+        Text(
+            text = if (state.config.examType == ExamType.WAEC) "WAEC SUBJECTS (SELECT 4 – 10 TO PRACTICE)" else "JAMB CBT SUBJECTS (SELECT 4 – 10 TO PRACTICE)",
+            color = TextSubtle,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp)
+        )
+
+        val selectedCount = state.config.selectedSubjects.size
+        val isValidCount = selectedCount in 4..10
+
+        // Status Header with Badge
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "JAMB FACULTY SUBJECT INPUTS",
-                color = TextSubtle,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp)
+                text = if (state.config.examType == ExamType.JAMB)
+                    "JAMB UTME CBT requires 4 subjects combo"
+                else
+                    "WAEC WASSCE spans 7 to 9 subjects",
+                color = TextMutedGray,
+                fontSize = 11.sp
             )
-
-            val isScienceActive = WaecJambQuestionBank.scienceSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
-            val isArtActive = WaecJambQuestionBank.artSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
-            val isCommercialActive = WaecJambQuestionBank.commercialSubjects.any { it.equals(state.config.subject, ignoreCase = true) }
-
-            // 1. Science Input
-            SubjectInputField(
-                label = "SCIENCE SUBJECTS INPUT",
-                subject = if (isScienceActive) state.config.subject else "Select Science Subject",
-                subtitle = if (isScienceActive) "Active Selection • Tap to switch" else "Physics, Chemistry, Biology, Mathematics, Agric...",
-                icon = Icons.Default.Science,
-                isActive = isScienceActive,
-                onClick = {
-                    activeDialogTrack = "Science"
-                    showSubjectDialog = true
-                },
-                testTag = "jamb_science_subject_input"
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 2. Art & Humanities Input
-            SubjectInputField(
-                label = "ART & HUMANITIES SUBJECTS INPUT",
-                subject = if (isArtActive) state.config.subject else "Select Art & Humanities Subject",
-                subtitle = if (isArtActive) "Active Selection • Tap to switch" else "Literature, Government, History, CRS, IRS, French...",
-                icon = Icons.AutoMirrored.Filled.MenuBook,
-                isActive = isArtActive,
-                onClick = {
-                    activeDialogTrack = "Art"
-                    showSubjectDialog = true
-                },
-                testTag = "jamb_art_subject_input"
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 3. Commercial Input
-            SubjectInputField(
-                label = "COMMERCIAL SUBJECTS INPUT",
-                subject = if (isCommercialActive) state.config.subject else "Select Commercial Subject",
-                subtitle = if (isCommercialActive) "Active Selection • Tap to switch" else "Economics, Commerce, Principles of Accounts, Marketing...",
-                icon = Icons.Default.Paid,
-                isActive = isCommercialActive,
-                onClick = {
-                    activeDialogTrack = "Commercial"
-                    showSubjectDialog = true
-                },
-                testTag = "jamb_commercial_subject_input"
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Compulsory English Language Chip
             Surface(
-                onClick = {
-                    onSelectSubject("English Language")
-                    onSelectFacultyTrack("General")
+                shape = RoundedCornerShape(14.dp),
+                color = when {
+                    selectedCount < 4 -> Color(0xFF382314)
+                    selectedCount in 4..10 -> Color(0xFF143820)
+                    else -> Color(0xFF1E2838)
                 },
-                shape = RoundedCornerShape(10.dp),
-                color = if (state.config.subject == "English Language") PureWhite else DarkSurface,
-                border = BorderStroke(1.dp, if (state.config.subject == "English Language") PureWhite else BorderSubtle),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("jamb_compulsory_english_chip")
+                border = BorderStroke(
+                    1.dp,
+                    when {
+                        selectedCount < 4 -> Color(0xFFFFB74D)
+                        selectedCount in 4..10 -> Color(0xFF4ADE80)
+                        else -> ChatGptPlusStarBlue
+                    }
+                )
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Text(
+                    text = when {
+                        selectedCount < 4 -> "Selected: $selectedCount / 10 (Min 4)"
+                        selectedCount in 4..9 -> "✓ $selectedCount / 10 Subjects Active"
+                        else -> "Max 10 / 10 Subjects Active"
+                    },
+                    color = when {
+                        selectedCount < 4 -> Color(0xFFFFB74D)
+                        selectedCount in 4..10 -> Color(0xFF4ADE80)
+                        else -> ChatGptPlusStarBlue
+                    },
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Selected Subjects Pill Chips with quick remove ✕
+        if (state.config.selectedSubjects.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                state.config.selectedSubjects.forEachIndexed { idx, sub ->
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = PureWhite,
+                        border = BorderStroke(1.dp, PureWhite)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${idx + 1}. $sub",
+                                color = TrueBlack,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove $sub",
+                                tint = TrueBlack,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clickable { onToggleSubject(sub) }
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        // Quick Preset Combinations (1-tap setup)
+        Text(
+            text = "ONE-TAP POPULAR PACKAGES",
+            color = TextSubtle,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp)
+        )
+
+        val relevantPresets = remember(state.config.examType) {
+            WaecJambQuestionBank.popularPresets.filter { it.examType == state.config.examType }
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            relevantPresets.forEach { preset ->
+                val isPresetActive = state.config.selectedSubjects == preset.subjects
+                Surface(
+                    onClick = { onSetSelectedSubjects(preset.subjects) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isPresetActive) Color(0xFF1E2838) else DarkSurface,
+                    border = BorderStroke(1.dp, if (isPresetActive) ChatGptPlusStarBlue else BorderSubtle),
+                    modifier = Modifier.testTag("preset_${preset.name.replace(" ", "_")}")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = if (state.config.subject == "English Language") TrueBlack else Color(0xFF4ADE80),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "English Language (Compulsory for All JAMB Tracks)",
-                            color = if (state.config.subject == "English Language") TrueBlack else PureWhite,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (isPresetActive) ChatGptPlusStarBlue else TextMutedGray,
+                            modifier = Modifier.size(13.dp)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Mandatory CBT section for all faculty candidates",
-                            color = if (state.config.subject == "English Language") TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
-                            fontSize = 10.sp
+                            text = preset.name,
+                            color = if (isPresetActive) PureWhite else TextMutedGray,
+                            fontSize = 11.sp,
+                            fontWeight = if (isPresetActive) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Category Filter for Subject Picker: [All] [Science] [Art] [Commercial]
+        var selectedPickerCategory by remember { mutableStateOf("All") }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF14171A), RoundedCornerShape(10.dp))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("All", "Science", "Art", "Commercial").forEach { cat ->
+                val isCatSel = selectedPickerCategory == cat
+                Surface(
+                    onClick = { selectedPickerCategory = cat },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isCatSel) PureWhite else Color.Transparent,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = cat,
+                        color = if (isCatSel) TrueBlack else TextMutedGray,
+                        fontSize = 11.sp,
+                        fontWeight = if (isCatSel) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Grid/Flow of Clickable Subject Chips (Click to select 4-10 subjects)
+        val displaySubjects = remember(selectedPickerCategory) {
+            when (selectedPickerCategory) {
+                "Science" -> WaecJambQuestionBank.scienceSubjects
+                "Art" -> WaecJambQuestionBank.artSubjects
+                "Commercial" -> WaecJambQuestionBank.commercialSubjects
+                else -> WaecJambQuestionBank.allSubjects
+            }
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            displaySubjects.forEach { sub ->
+                val isSelected = state.config.selectedSubjects.contains(sub)
+                val selIndex = state.config.selectedSubjects.indexOf(sub)
+
+                Surface(
+                    onClick = { onToggleSubject(sub) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) PureWhite else DarkSurface,
+                    border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderSubtle),
+                    modifier = Modifier.testTag("clickable_subject_chip_$sub")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .background(TrueBlack, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${selIndex + 1}",
+                                    color = PureWhite,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = BorderLight,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = sub,
+                            color = if (isSelected) TrueBlack else PureWhite,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }
@@ -929,16 +1082,19 @@ private fun ExamSelectionSetupView(
         Spacer(modifier = Modifier.height(28.dp))
 
         // --- NEXT / START EXAM BUTTON ---
+        val canStartExam = state.config.selectedSubjects.size in 4..10
         Button(
             onClick = onNext,
-            enabled = !state.isLoading,
+            enabled = !state.isLoading && canStartExam,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
                 .testTag("waec_jamb_next_button"),
             colors = ButtonDefaults.buttonColors(
                 containerColor = PureWhite,
-                contentColor = TrueBlack
+                contentColor = TrueBlack,
+                disabledContainerColor = DarkSurface,
+                disabledContentColor = TextSubtle
             ),
             shape = RoundedCornerShape(10.dp)
         ) {
@@ -951,9 +1107,19 @@ private fun ExamSelectionSetupView(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
+            } else if (!canStartExam) {
+                Text(
+                    text = "SELECT AT LEAST 4 SUBJECTS (${state.config.selectedSubjects.size}/4)",
+                    color = TextSubtle,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             } else {
                 Text(
-                    text = if (state.config.mode == ExamPrepMode.PRACTICE) "NEXT • START PRACTICE" else "NEXT • BEGIN MOCK EXAM",
+                    text = if (state.config.mode == ExamPrepMode.PRACTICE)
+                        "NEXT • PRACTICE ${state.config.selectedSubjects.size} SUBJECTS"
+                    else
+                        "NEXT • BEGIN MOCK EXAM (${state.config.selectedSubjects.size} SUBJECTS)",
                     color = TrueBlack,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -965,6 +1131,138 @@ private fun ExamSelectionSetupView(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Bottom Navigation Bar to smoothly navigate between WAEC and JAMB to help study.
+ */
+@Composable
+fun WaecJambBottomStudyBar(
+    currentExam: ExamType,
+    onSelectExam: (ExamType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("waec_jamb_bottom_study_bar"),
+        color = Color(0xFF101215),
+        border = BorderStroke(1.dp, BorderSubtle),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(bottom = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    tint = ChatGptPlusStarBlue,
+                    modifier = Modifier.size(11.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "EXAM STUDY NAVIGATOR • SWITCH TO COMPARE SYLLABUS",
+                    color = TextSubtle,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1B1E24), RoundedCornerShape(12.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // WAEC Option
+                val isWaec = currentExam == ExamType.WAEC
+                Surface(
+                    onClick = { onSelectExam(ExamType.WAEC) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isWaec) PureWhite else Color.Transparent,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("bottom_bar_waec_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = if (isWaec) TrueBlack else PureWhite,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "WAEC (WASSCE)",
+                                color = if (isWaec) TrueBlack else PureWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "O'Level • 1997-2026",
+                                color = if (isWaec) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+
+                // JAMB Option
+                val isJamb = currentExam == ExamType.JAMB
+                Surface(
+                    onClick = { onSelectExam(ExamType.JAMB) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isJamb) PureWhite else Color.Transparent,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("bottom_bar_jamb_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Science,
+                            contentDescription = null,
+                            tint = if (isJamb) TrueBlack else PureWhite,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "JAMB (UTME)",
+                                color = if (isJamb) TrueBlack else PureWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "CBT Practice • 1997-2026",
+                                color = if (isJamb) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1118,7 +1416,7 @@ private fun ActiveExamView(
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "${state.config.examType.code} • ${state.config.subject}",
+                    text = "${question.exam.code} • ${question.subject}",
                     color = PureWhite,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
@@ -1165,7 +1463,44 @@ private fun ActiveExamView(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // Multi-Subject Navigation Row (when multiple subjects are being practiced)
+        val distinctSubjects = remember(state.questions) {
+            state.questions.map { it.subject }.distinct()
+        }
+        if (distinctSubjects.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                distinctSubjects.forEach { sub ->
+                    val isCurrentSub = question.subject.equals(sub, ignoreCase = true)
+                    val countForSub = state.questions.count { it.subject.equals(sub, ignoreCase = true) }
+                    val answeredForSub = state.questions.count { it.subject.equals(sub, ignoreCase = true) && it.userSelectedIndex != null }
+                    Surface(
+                        onClick = {
+                            val firstIdx = state.questions.indexOfFirst { it.subject.equals(sub, ignoreCase = true) }
+                            if (firstIdx >= 0) onJump(firstIdx)
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isCurrentSub) PureWhite else DarkSurface,
+                        border = BorderStroke(1.dp, if (isCurrentSub) PureWhite else BorderSubtle)
+                    ) {
+                        Text(
+                            text = "$sub ($answeredForSub/$countForSub)",
+                            color = if (isCurrentSub) TrueBlack else PureWhite,
+                            fontSize = 10.sp,
+                            fontWeight = if (isCurrentSub) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Question Details & Body
         Column(
@@ -1975,9 +2310,9 @@ private fun SubjectInputField(
 @Composable
 private fun SubjectSelectionDialog(
     track: String, // "All", "Science", "Art", "Commercial"
-    selectedSubject: String,
+    selectedSubjects: List<String>,
     onDismiss: () -> Unit,
-    onSelectSubject: (subject: String, track: String) -> Unit
+    onToggleSubject: (subject: String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -2000,7 +2335,7 @@ private fun SubjectSelectionDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 420.dp)
-                .height(520.dp)
+                .height(540.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -2016,19 +2351,20 @@ private fun SubjectSelectionDialog(
                     Column {
                         Text(
                             text = when (track) {
-                                "Science" -> "Select Science Subject"
-                                "Art" -> "Select Art Subject"
-                                "Commercial" -> "Select Commercial Subject"
-                                else -> "Select Exam Subject"
+                                "Science" -> "Select Science Subjects"
+                                "Art" -> "Select Art Subjects"
+                                "Commercial" -> "Select Commercial Subjects"
+                                else -> "Select Exam Subjects (4 - 10)"
                             },
                             color = PureWhite,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${filteredList.size} subjects available",
-                            color = TextMutedGray,
-                            fontSize = 11.sp
+                            text = "${selectedSubjects.size} / 10 Selected (Min 4, Max 10)",
+                            color = if (selectedSubjects.size in 4..10) Color(0xFF4ADE80) else Color(0xFFFFB74D),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                     IconButton(
@@ -2044,7 +2380,7 @@ private fun SubjectSelectionDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Search field
                 OutlinedTextField(
@@ -2069,12 +2405,13 @@ private fun SubjectSelectionDialog(
                         .testTag("subject_search_field")
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Scrollable Subject List
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -2089,7 +2426,8 @@ private fun SubjectSelectionDialog(
                         }
                     } else {
                         filteredList.forEach { sub ->
-                            val isSelected = sub.equals(selectedSubject, ignoreCase = true)
+                            val isSelected = selectedSubjects.contains(sub)
+                            val selIndex = selectedSubjects.indexOf(sub)
                             val subTrack = when {
                                 WaecJambQuestionBank.scienceSubjects.contains(sub) -> "Science"
                                 WaecJambQuestionBank.artSubjects.contains(sub) -> "Art"
@@ -2098,10 +2436,7 @@ private fun SubjectSelectionDialog(
                             }
 
                             Surface(
-                                onClick = {
-                                    onSelectSubject(sub, subTrack)
-                                    onDismiss()
-                                },
+                                onClick = { onToggleSubject(sub) },
                                 shape = RoundedCornerShape(10.dp),
                                 color = if (isSelected) PureWhite else TrueBlack,
                                 border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderSubtle),
@@ -2112,7 +2447,7 @@ private fun SubjectSelectionDialog(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -2140,16 +2475,54 @@ private fun SubjectSelectionDialog(
                                             fontSize = 10.sp
                                         )
                                     }
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                        contentDescription = null,
-                                        tint = if (isSelected) TrueBlack else BorderSubtle,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .background(TrueBlack, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "${selIndex + 1}",
+                                                color = PureWhite,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.RadioButtonUnchecked,
+                                            contentDescription = null,
+                                            tint = BorderSubtle,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Done / Apply Button
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PureWhite,
+                        contentColor = TrueBlack
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = "DONE • ${selectedSubjects.size} SUBJECTS SELECTED",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
                 }
             }
         }

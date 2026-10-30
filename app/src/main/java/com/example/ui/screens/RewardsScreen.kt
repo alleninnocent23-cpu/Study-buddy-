@@ -80,14 +80,6 @@ fun RewardsScreen(
     var selectedCategory by remember { mutableStateOf(BadgeCategory.ALL) }
     var selectedBadgeForDetail by remember { mutableStateOf<Badge?>(null) }
 
-    // Celebration Dialog for newly unlocked badge
-    state.newlyUnlockedBadge?.let { badge ->
-        AchievementCelebrationDialog(
-            badge = badge,
-            onDismiss = onDismissCelebration
-        )
-    }
-
     // Detail Dialog for clicked badge
     selectedBadgeForDetail?.let { badge ->
         BadgeDetailDialog(

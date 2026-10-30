@@ -138,6 +138,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     val isSpeaking by viewModel.voiceManager.isSpeaking.collectAsState()
     val isListening by viewModel.voiceManager.isListening.collectAsState()
     val voiceGender by viewModel.voiceGender.collectAsState()
+    val isRecordingAudio by viewModel.isRecordingAudio.collectAsState()
 
     val savedSessions by viewModel.savedSessions.collectAsState()
     val savedQuizzes by viewModel.savedQuizzes.collectAsState()
@@ -588,7 +589,11 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onPomodoroShortcut = { viewModel.navigateTo(AppScreen.POMODORO) },
                             onLikeMessage = { id, liked -> viewModel.toggleLikeMessage(id, liked) },
                             voiceGender = voiceGender,
-                            onVoiceGenderChange = { viewModel.setVoiceGender(it) }
+                            onVoiceGenderChange = { viewModel.setVoiceGender(it) },
+                            isRecordingAudio = isRecordingAudio,
+                            onHoldStartRecording = { viewModel.startHoldRecording() },
+                            onHoldFinishRecording = { viewModel.finishHoldRecording() },
+                            onHoldCancelRecording = { viewModel.cancelHoldRecording() }
                         )
                     }
 
@@ -679,6 +684,8 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onExitExamPrep = { viewModel.navigateTo(AppScreen.TUTOR) },
                             onSelectExam = { viewModel.updateWaecJambExam(it) },
                             onSelectSubject = { viewModel.updateWaecJambSubject(it) },
+                            onToggleSubject = { viewModel.toggleWaecJambSubject(it) },
+                            onSetSelectedSubjects = { viewModel.setWaecJambSelectedSubjects(it) },
                             onSelectFacultyTrack = { viewModel.updateWaecJambFacultyTrack(it) },
                             onSelectYear = { viewModel.updateWaecJambYear(it) },
                             onSelectYearRange = { start, end -> viewModel.updateWaecJambYearRange(start, end) },

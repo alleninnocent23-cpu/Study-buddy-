@@ -143,4 +143,45 @@ class ExampleUnitTest {
         assertTrue(questions2026.isNotEmpty())
         assertEquals(2026, questions2026.first().year)
     }
+
+    @Test
+    fun testMultiSubjectPracticeSelection4To10() {
+        // Test 4 subjects combo for JAMB
+        val jamb4Subjects = listOf("English Language", "Mathematics", "Physics", "Chemistry")
+        val jambQuestions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
+            examType = com.example.data.model.ExamType.JAMB,
+            subjects = jamb4Subjects,
+            totalCount = 20
+        )
+        assertTrue(jambQuestions.size == 20)
+        val distinctSubjectsJamb = jambQuestions.map { it.subject }.distinct()
+        assertTrue(distinctSubjectsJamb.size >= 4)
+        jamb4Subjects.forEach { sub ->
+            assertTrue(distinctSubjectsJamb.contains(sub))
+        }
+
+        // Test 9 subjects package for WAEC
+        val waec9Subjects = listOf(
+            "English Language", "Mathematics", "Civic Education",
+            "Physics", "Chemistry", "Biology", "Further Mathematics",
+            "Economics", "Computer Studies"
+        )
+        val waecQuestions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
+            examType = com.example.data.model.ExamType.WAEC,
+            subjects = waec9Subjects,
+            totalCount = 27
+        )
+        assertTrue(waecQuestions.isNotEmpty())
+        val distinctSubjectsWaec = waecQuestions.map { it.subject }.distinct()
+        assertTrue(distinctSubjectsWaec.size >= 9)
+    }
+
+    @Test
+    fun testPopularPresets4To10() {
+        val presets = com.example.data.repository.WaecJambQuestionBank.popularPresets
+        assertTrue(presets.isNotEmpty())
+        presets.forEach { preset ->
+            assertTrue(preset.subjects.size in 4..10)
+        }
+    }
 }

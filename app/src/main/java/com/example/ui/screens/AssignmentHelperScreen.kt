@@ -101,6 +101,10 @@ fun AssignmentHelperScreen(
     onLikeMessage: (String, Boolean) -> Unit,
     voiceGender: com.example.util.VoiceGender = com.example.util.VoiceGender.MALE,
     onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
+    isRecordingAudio: Boolean = false,
+    onHoldStartRecording: () -> Unit = {},
+    onHoldFinishRecording: () -> Unit = {},
+    onHoldCancelRecording: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -452,6 +456,20 @@ fun AssignmentHelperScreen(
                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
+                onHoldStartRecording = {
+                    val hasPerm = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (hasPerm) {
+                        onHoldStartRecording()
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onHoldFinishRecording = onHoldFinishRecording,
+                onHoldCancelRecording = onHoldCancelRecording,
+                isRecordingAudio = isRecordingAudio,
                 onSend = { onSendChatMessage(null) },
                 isListening = isListening,
                 isLoading = state.isLoading,

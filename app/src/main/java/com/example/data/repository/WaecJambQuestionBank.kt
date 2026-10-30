@@ -972,14 +972,9 @@ object WaecJambQuestionBank {
             q.subject.equals(subject, ignoreCase = true) && q.year in targetStart..targetEnd
         }
 
-        // If no direct subject+year matches, take any subject matching
+        // If no direct subject+year matches, take any question matching this subject
         if (matched.isEmpty()) {
             matched = questionsList.filter { it.subject.equals(subject, ignoreCase = true) }
-        }
-
-        // If still empty (e.g. subject not yet in hardcoded list), fallback to questions list
-        if (matched.isEmpty()) {
-            matched = questionsList
         }
 
         // 2. Filter by examType if available
@@ -1228,5 +1223,100 @@ object WaecJambQuestionBank {
             list.add(q)
         }
         return list
+    }
+
+    data class SubjectComboPreset(
+        val name: String,
+        val examType: ExamType,
+        val description: String,
+        val subjects: List<String>
+    )
+
+    val popularPresets: List<SubjectComboPreset> = listOf(
+        SubjectComboPreset(
+            name = "JAMB Science (4)",
+            examType = ExamType.JAMB,
+            description = "English, Mathematics, Physics, Chemistry",
+            subjects = listOf("English Language", "Mathematics", "Physics", "Chemistry")
+        ),
+        SubjectComboPreset(
+            name = "JAMB Medicine & Health (4)",
+            examType = ExamType.JAMB,
+            description = "English, Biology, Chemistry, Physics",
+            subjects = listOf("English Language", "Biology", "Chemistry", "Physics")
+        ),
+        SubjectComboPreset(
+            name = "JAMB Arts & Law (4)",
+            examType = ExamType.JAMB,
+            description = "English, Literature, Government, CRS",
+            subjects = listOf("English Language", "Literature in English", "Government", "Christian Religious Studies")
+        ),
+        SubjectComboPreset(
+            name = "JAMB Commercial & Social (4)",
+            examType = ExamType.JAMB,
+            description = "English, Economics, Commerce, Accounts",
+            subjects = listOf("English Language", "Economics", "Commerce", "Principles of Accounts")
+        ),
+        SubjectComboPreset(
+            name = "WAEC Full Science Package (9)",
+            examType = ExamType.WAEC,
+            description = "English, Maths, Civic, Physics, Chemistry, Biology, Further Maths, Economics, Computer",
+            subjects = listOf(
+                "English Language", "Mathematics", "Civic Education",
+                "Physics", "Chemistry", "Biology", "Further Mathematics",
+                "Economics", "Computer Studies"
+            )
+        ),
+        SubjectComboPreset(
+            name = "WAEC Full Arts Package (8)",
+            examType = ExamType.WAEC,
+            description = "English, Maths, Civic, Literature, Government, CRS, Economics, History",
+            subjects = listOf(
+                "English Language", "Mathematics", "Civic Education",
+                "Literature in English", "Government", "Christian Religious Studies",
+                "Economics", "History"
+            )
+        ),
+        SubjectComboPreset(
+            name = "WAEC Full Commercial Package (8)",
+            examType = ExamType.WAEC,
+            description = "English, Maths, Civic, Economics, Commerce, Accounts, Marketing, Office Practice",
+            subjects = listOf(
+                "English Language", "Mathematics", "Civic Education",
+                "Economics", "Commerce", "Principles of Accounts",
+                "Marketing", "Office Practice"
+            )
+        )
+    )
+
+    fun getMultiSubjectQuestions(
+        examType: ExamType,
+        subjects: List<String>,
+        selectedYear: Int? = null,
+        yearStart: Int = 1997,
+        yearEnd: Int = 2026,
+        difficulty: String = "Mixed",
+        totalCount: Int = 20
+    ): List<WaecJambQuestion> {
+        val validSubjects = if (subjects.isEmpty()) listOf("Mathematics") else subjects
+        val result = mutableListOf<WaecJambQuestion>()
+        val perSubject = (totalCount / validSubjects.size).coerceAtLeast(1)
+        val remainder = totalCount % validSubjects.size
+
+        validSubjects.forEachIndexed { index, sub ->
+            val countForSub = perSubject + (if (index < remainder) 1 else 0)
+            val subQuestions = getQuestions(
+                examType = examType,
+                subject = sub,
+                selectedYear = selectedYear,
+                yearStart = yearStart,
+                yearEnd = yearEnd,
+                topic = "All Topics",
+                difficulty = difficulty,
+                count = countForSub
+            )
+            result.addAll(subQuestions)
+        }
+        return if (result.size > totalCount) result.take(totalCount) else result
     }
 }

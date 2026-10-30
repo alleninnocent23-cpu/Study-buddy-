@@ -19,7 +19,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -483,6 +485,10 @@ fun ChatGptInputBar(
     onAddAttachment: () -> Unit,
     onVoiceDictation: () -> Unit,
     onOpenVoiceMode: () -> Unit,
+    onHoldStartRecording: () -> Unit = {},
+    onHoldFinishRecording: () -> Unit = {},
+    onHoldCancelRecording: () -> Unit = {},
+    isRecordingAudio: Boolean = false,
     onSend: () -> Unit,
     isListening: Boolean,
     isLoading: Boolean,
@@ -493,6 +499,33 @@ fun ChatGptInputBar(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
+        // Recording Feedback banner when holding the blue button
+        AnimatedVisibility(visible = isRecordingAudio) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF132B6E),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ChatGptBlueWave),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    WaveformIcon(color = PureWhite, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Recording audio... Release to send to chat",
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
         // If an attachment is ready, show sleek preview chip above input
         AnimatedVisibility(visible = attachedImage != null || attachedFileName != null) {
             Surface(
@@ -589,8 +622,8 @@ fun ChatGptInputBar(
                 ) {
                     if (text.isEmpty()) {
                         Text(
-                            text = if (hasActiveMessages) "Reply to Study Buddy" else "Ask Study Buddy",
-                            color = ChatGptInputPlaceholder,
+                            text = if (isRecordingAudio) "Recording your voice..." else if (hasActiveMessages) "Reply to Study Buddy" else "Ask Study Buddy",
+                            color = if (isRecordingAudio) ChatGptBlueWave else ChatGptInputPlaceholder,
                             fontSize = 15.sp,
                             maxLines = 1
                         )
@@ -667,14 +700,36 @@ fun ChatGptInputBar(
                         }
                     }
                 } else {
-                    // Exact Blue Waveform Voice Mode Button from screenshots
-                    IconButton(
-                        onClick = onOpenVoiceMode,
+                    // Exact Blue Waveform Voice Button with:
+                    // 1) Tap -> Opens 'Study Talk' full voice mode with verbal Q&A and audio feedback from Gemini
+                    // 2) Long-press / Hold -> Records audio live and sends it directly to chat upon release!
+                    Box(
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
-                            .background(ChatGptBlueWave)
-                            .testTag("chat_voice_mode_button")
+                            .background(if (isRecordingAudio) Color(0xFFEF4444) else ChatGptBlueWave)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        onOpenVoiceMode()
+                                    },
+                                    onLongPress = {
+                                        onHoldStartRecording()
+                                    },
+                                    onPress = {
+                                        val released = tryAwaitRelease()
+                                        if (isRecordingAudio) {
+                                            if (released) {
+                                                onHoldFinishRecording()
+                                            } else {
+                                                onHoldCancelRecording()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .testTag("chat_voice_mode_button"),
+                        contentAlignment = Alignment.Center
                     ) {
                         WaveformIcon(
                             color = PureWhite,
@@ -992,12 +1047,19 @@ fun VoiceModeDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Study Buddy Voice Mode",
-                        color = PureWhite,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Column {
+                        Text(
+                            text = "Study Talk • Audio Q&A",
+                            color = PureWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Verbal AI questions with audio explanations",
+                            color = ChatGptBlueWave,
+                            fontSize = 11.sp
+                        )
+                    }
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier
@@ -1091,16 +1153,16 @@ fun VoiceModeDialog(
 
                 Text(
                     text = when {
-                        isSpeaking -> "Study Buddy is speaking..."
-                        isListening -> "Listening to you..."
-                        else -> "Tap the mic and ask anything"
+                        isSpeaking -> "Study Buddy is responding with audio..."
+                        isListening -> "Listening to your question..."
+                        else -> "Tap the mic and speak your question"
                     },
                     color = PureWhite,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "High-fidelity school explanations & problem solving",
+                    text = "Powered by Gemini with real-time Nigerian voice audio feedback",
                     color = TextMutedGray,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 6.dp)
