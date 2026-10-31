@@ -11,6 +11,11 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +27,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +40,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -43,13 +52,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +80,8 @@ import com.example.ui.components.GetPlusDialog
 import com.example.ui.components.SubjectPersonalizationBadge
 import com.example.ui.components.SubjectSelectionDialog
 import com.example.ui.components.SubjectSelectionStrip
+import com.example.R
+import com.example.ui.components.LoopingVideoPlayer
 import com.example.ui.components.VoiceModeDialog
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
@@ -102,6 +118,9 @@ fun AssignmentHelperScreen(
     voiceGender: com.example.util.VoiceGender = com.example.util.VoiceGender.MALE,
     onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
     isRecordingAudio: Boolean = false,
+    recordingDurationSeconds: Int = 0,
+    currentlyPlayingVoiceNoteId: String? = null,
+    onTogglePlayVoiceNote: (String, String) -> Unit = { _, _ -> },
     onHoldStartRecording: () -> Unit = {},
     onHoldFinishRecording: () -> Unit = {},
     onHoldCancelRecording: () -> Unit = {},
@@ -116,9 +135,20 @@ fun AssignmentHelperScreen(
     var showVoiceModeDialog by remember { mutableStateOf(false) }
     var showSubjectFilterDialog by remember { mutableStateOf(false) }
 
+    val scope = rememberCoroutineScope()
+
     // Scroll to bottom when new messages arrive
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
+        }
+    }
+
+    // Auto-scroll when keyboard opens (matching video behavior)
+    val imeInsets = WindowInsets.ime
+    val density = LocalDensity.current
+    LaunchedEffect(imeInsets.getBottom(density)) {
+        if (state.messages.isNotEmpty() && imeInsets.getBottom(density) > 0) {
             listState.animateScrollToItem(state.messages.size - 1)
         }
     }
@@ -366,60 +396,125 @@ fun AssignmentHelperScreen(
                 )
             } else {
                 // Screenshot 2: Message stream with user bubble and assistant answer with action icons
-                LazyColumn(
-                    state = listState,
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    items(state.messages, key = { it.id }) { msg ->
-                        ChatGptMessageItem(
-                            message = msg,
-                            isSpeakingThis = isSpeaking,
-                            onSpeak = { onPlayAnswer(msg.text) },
-                            onStopSpeak = onStopAnswerVoice,
-                            onLike = { liked -> onLikeMessage(msg.id, liked) }
-                        )
-                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(state.messages, key = { it.id }) { msg ->
+                            ChatGptMessageItem(
+                                message = msg,
+                                isSpeakingThis = isSpeaking,
+                                isPlayingVoiceNote = (msg.id == currentlyPlayingVoiceNoteId),
+                                onTogglePlayVoiceNote = { onTogglePlayVoiceNote(msg.id, msg.text) },
+                                onSpeak = { onPlayAnswer(msg.text) },
+                                onStopSpeak = onStopAnswerVoice,
+                                onLike = { liked -> onLikeMessage(msg.id, liked) }
+                            )
+                        }
 
-                    // Loading indicator
-                    if (state.isLoading) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    color = PureWhite,
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
+                        // Loading indicator
+                        if (state.isLoading) {
+                            item {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = PureWhite,
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "Study Buddy is solving...",
+                                            color = TextMutedGray,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Minimized cute robot video typing on laptop (stops automatically when answer arrives)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 110.dp, height = 125.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(TrueBlack),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        LoopingVideoPlayer(
+                                            videoRawResId = R.raw.studybuddy_solving_bot,
+                                            hasBorder = false,
+                                            backgroundColor = Color.Transparent,
+                                            showMuteBadge = false,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Error notice if any
+                        if (state.error != null) {
+                            item {
                                 Text(
-                                    text = "Study Buddy is solving...",
+                                    text = state.error,
                                     color = TextMutedGray,
-                                    fontSize = 13.sp
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                                 )
                             }
                         }
-                    }
 
-                    // Error notice if any
-                    if (state.error != null) {
                         item {
-                            Text(
-                                text = state.error,
-                                color = TextMutedGray,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                            )
+                            Spacer(modifier = Modifier.height(10.dp))
                         }
                     }
 
-                    item {
-                        Spacer(modifier = Modifier.height(10.dp))
+                    // Floating Circular Down Arrow Button (matching Screenshot 2: pinned right above typing bar when scrolled up)
+                    val showScrollToBottom by remember {
+                        derivedStateOf {
+                            listState.canScrollForward
+                        }
+                    }
+
+                    if (showScrollToBottom) {
+                        Surface(
+                            onClick = {
+                                scope.launch {
+                                    if (state.messages.isNotEmpty()) {
+                                        listState.animateScrollToItem(state.messages.size - 1)
+                                    }
+                                }
+                            },
+                            shape = CircleShape,
+                            color = Color(0xFF242424),
+                            border = BorderStroke(1.dp, Color(0xFF424242)),
+                            shadowElevation = 8.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 12.dp)
+                                .size(42.dp)
+                                .testTag("scroll_to_bottom_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDownward,
+                                    contentDescription = "Scroll to bottom",
+                                    tint = PureWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -470,11 +565,48 @@ fun AssignmentHelperScreen(
                 onHoldFinishRecording = onHoldFinishRecording,
                 onHoldCancelRecording = onHoldCancelRecording,
                 isRecordingAudio = isRecordingAudio,
+                recordingDurationSeconds = recordingDurationSeconds,
                 onSend = { onSendChatMessage(null) },
                 isListening = isListening,
                 isLoading = state.isLoading,
-                modifier = Modifier.navigationBarsPadding()
+                modifier = Modifier
+                    .imePadding()
+                    .navigationBarsPadding()
             )
+        }
+
+        // Floating Scroll to Bottom Button matching Screenshot 2
+        val showScrollToBottom by remember {
+            derivedStateOf {
+                listState.firstVisibleItemIndex < (state.messages.size - 2).coerceAtLeast(0)
+            }
+        }
+        AnimatedVisibility(
+            visible = showScrollToBottom && state.messages.isNotEmpty(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 76.dp)
+                .imePadding()
+        ) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        listState.animateScrollToItem(state.messages.size - 1)
+                    }
+                },
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF222630))
+                    .border(1.dp, Color(0xFF383D4A), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = "Scroll to bottom",
+                    tint = PureWhite,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 

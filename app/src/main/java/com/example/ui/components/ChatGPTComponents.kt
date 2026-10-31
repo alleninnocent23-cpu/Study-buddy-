@@ -14,14 +14,18 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.input.pointer.pointerInput
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +39,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -467,12 +478,18 @@ fun ChatGptEmptyPrompts(
         }
     }
 }
+fun formatVoiceDuration(seconds: Int): String {
+    val mins = seconds / 60
+    val secs = seconds % 60
+    return String.format(Locale.US, "%d:%02d", mins, secs)
+}
 
 /**
- * Bottom Input Pill Capsule matching both screenshots:
- * - Left: + button
- * - Center: TextField with "Ask ChatGPT" or "Reply to ChatGPT"
- * - Right: Mic icon + Blue circular voice waveform button (or Send arrow if text typed)
+ * Bottom Input Pill Capsule:
+ * - Left: Study Buddy avatar + (+) attachment button
+ * - Center: TextField with "Ask Study Buddy" / "Reply to Study Buddy"
+ * - Right: Mic dictation icon + Voice Note Recorder Button (Black background with white circular border ring and white waveform)
+ * - Recording State: Transforms into the Voice Note Capsule (Black background, white border, circular white ring with recording dot, white animated waveform bars, live 0:0X timer, cancel and send actions)
  */
 @Composable
 fun ChatGptInputBar(
@@ -489,6 +506,7 @@ fun ChatGptInputBar(
     onHoldFinishRecording: () -> Unit = {},
     onHoldCancelRecording: () -> Unit = {},
     isRecordingAudio: Boolean = false,
+    recordingDurationSeconds: Int = 0,
     onSend: () -> Unit,
     isListening: Boolean,
     isLoading: Boolean,
@@ -499,33 +517,6 @@ fun ChatGptInputBar(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
-        // Recording Feedback banner when holding the blue button
-        AnimatedVisibility(visible = isRecordingAudio) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF132B6E),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ChatGptBlueWave),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    WaveformIcon(color = PureWhite, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Recording audio... Release to send to chat",
-                        color = PureWhite,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-        }
-
         // If an attachment is ready, show sleek preview chip above input
         AnimatedVisibility(visible = attachedImage != null || attachedFileName != null) {
             Surface(
@@ -572,169 +563,267 @@ fun ChatGptInputBar(
             }
         }
 
-        // Main Dark Capsule
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = ChatGptPillDark,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Row(
+        if (isRecordingAudio) {
+            // Live Voice Note Recording Capsule:
+            // Stadium pill shape, black background, crisp white border,
+            // circular white ring with pulsing recording indicator, animated white waveform,
+            // white live timer (e.g. 0:01, 0:02, 0:05), and cancel/send actions
+            Surface(
+                shape = RoundedCornerShape(32.dp),
+                color = TrueBlack,
+                border = BorderStroke(1.5.dp, PureWhite),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 8.dp, end = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .testTag("voice_note_recording_capsule")
             ) {
-                // Study Buddy Bot Image at the left side of the type bar (transparent background, no text overlap)
-                Image(
-                    painter = painterResource(id = R.drawable.ic_study_buddy_avatar),
-                    contentDescription = "Study Buddy",
+                Row(
                     modifier = Modifier
-                        .size(34.dp)
-                        .testTag("chat_input_bot_image"),
-                    contentScale = ContentScale.Fit
-                )
-
-                Spacer(modifier = Modifier.width(2.dp))
-
-                // + Plus Button
-                IconButton(
-                    onClick = onAddAttachment,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .testTag("chat_input_plus_button")
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add attachment",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                // Middle Text Field with flexible weight so it never overlaps or gets covered
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 6.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (text.isEmpty()) {
-                        Text(
-                            text = if (isRecordingAudio) "Recording your voice..." else if (hasActiveMessages) "Reply to Study Buddy" else "Ask Study Buddy",
-                            color = if (isRecordingAudio) ChatGptBlueWave else ChatGptInputPlaceholder,
-                            fontSize = 15.sp,
-                            maxLines = 1
+                    // Cancel / Discard Button
+                    IconButton(
+                        onClick = onHoldCancelRecording,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("chat_voice_cancel_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel voice note",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    BasicTextField(
-                        value = text,
-                        onValueChange = onTextChange,
-                        textStyle = TextStyle(
-                            color = PureWhite,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Normal
-                        ),
-                        cursorBrush = SolidColor(PureWhite),
-                        maxLines = 3,
-                        keyboardOptions = KeyboardOptions(
-                            imeAction = ImeAction.Send,
-                            keyboardType = KeyboardType.Text
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onSend = {
-                                if (text.isNotBlank() || attachedImage != null) {
-                                    onSend()
-                                }
-                            }
-                        ),
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Circular ring with recording indicator
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("chat_text_input")
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, PureWhite, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Animated White Audio Waveform Bars
+                    VoiceNoteWaveform(
+                        isPlaying = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(26.dp),
+                        barColor = PureWhite
                     )
-                }
 
-                // Mic Icon Button
-                IconButton(
-                    onClick = onVoiceDictation,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .testTag("chat_mic_button")
-                ) {
-                    Icon(
-                        imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                        contentDescription = "Voice Input",
-                        tint = if (isListening) ChatGptBlueWave else PureWhite,
-                        modifier = Modifier.size(22.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Live Duration Timer in PureWhite (e.g. 0:01, 0:02, 0:05)
+                    Text(
+                        text = formatVoiceDuration(recordingDurationSeconds),
+                        color = PureWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                }
 
-                Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                // Voice Waveform / Send Button
-                if (text.isNotBlank() || attachedImage != null) {
-                    // Send Arrow Button
+                    // Send Button (White circular button with dark arrow)
                     IconButton(
-                        onClick = onSend,
-                        enabled = !isLoading,
+                        onClick = onHoldFinishRecording,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(PureWhite)
-                            .testTag("chat_send_button")
+                            .testTag("chat_voice_send_button")
                     ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = TrueBlack,
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Send Voice Note",
+                            tint = TrueBlack,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            // Main Dark Input Capsule
+            Surface(
+                shape = RoundedCornerShape(32.dp),
+                color = ChatGptPillDark,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 8.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Study Buddy Bot Image at the left side of the type bar
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_study_buddy_avatar),
+                        contentDescription = "Study Buddy",
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("chat_input_bot_image"),
+                        contentScale = ContentScale.Fit
+                    )
+
+                    Spacer(modifier = Modifier.width(2.dp))
+
+                    // + Plus Button
+                    IconButton(
+                        onClick = onAddAttachment,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("chat_input_plus_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add attachment",
+                            tint = PureWhite,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    // Middle Text Field with flexible weight
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 6.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (text.isEmpty()) {
+                            Text(
+                                text = if (hasActiveMessages) "Reply to Study Buddy" else "Ask Study Buddy",
+                                color = ChatGptInputPlaceholder,
+                                fontSize = 15.sp,
+                                maxLines = 1
                             )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Send",
-                                tint = TrueBlack,
+                        }
+                        BasicTextField(
+                            value = text,
+                            onValueChange = onTextChange,
+                            textStyle = TextStyle(
+                                color = PureWhite,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            cursorBrush = SolidColor(PureWhite),
+                            maxLines = 3,
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Send,
+                                keyboardType = KeyboardType.Text
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if (text.isNotBlank() || attachedImage != null) {
+                                        onSend()
+                                    }
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("chat_text_input")
+                        )
+                    }
+
+                    // Mic Icon Button for dictation
+                    IconButton(
+                        onClick = onVoiceDictation,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("chat_mic_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = "Voice Input",
+                            tint = if (isListening) Color(0xFFEF4444) else PureWhite,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Voice Note Recorder / Send Button
+                    if (text.isNotBlank() || attachedImage != null) {
+                        // Send Arrow Button
+                        IconButton(
+                            onClick = onSend,
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(PureWhite)
+                                .testTag("chat_send_button")
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    color = TrueBlack,
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Send",
+                                    tint = TrueBlack,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        // Voice Note Recorder Button styled in reference design:
+                        // Black background with white circular border ring and white waveform!
+                        // - Tap: Begins recording voice note / Study Talk
+                        // - Long-press / Hold: Records voice note while held and sends on release
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(TrueBlack)
+                                .border(2.dp, PureWhite, CircleShape)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            onHoldStartRecording()
+                                        },
+                                        onLongPress = {
+                                            onHoldStartRecording()
+                                        },
+                                        onPress = {
+                                            val released = tryAwaitRelease()
+                                            if (isRecordingAudio) {
+                                                if (released) {
+                                                    onHoldFinishRecording()
+                                                } else {
+                                                    onHoldCancelRecording()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                                .testTag("chat_voice_mode_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            WaveformIcon(
+                                color = PureWhite,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
-                } else {
-                    // Exact Blue Waveform Voice Button with:
-                    // 1) Tap -> Opens 'Study Talk' full voice mode with verbal Q&A and audio feedback from Gemini
-                    // 2) Long-press / Hold -> Records audio live and sends it directly to chat upon release!
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(if (isRecordingAudio) Color(0xFFEF4444) else ChatGptBlueWave)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        onOpenVoiceMode()
-                                    },
-                                    onLongPress = {
-                                        onHoldStartRecording()
-                                    },
-                                    onPress = {
-                                        val released = tryAwaitRelease()
-                                        if (isRecordingAudio) {
-                                            if (released) {
-                                                onHoldFinishRecording()
-                                            } else {
-                                                onHoldCancelRecording()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                            .testTag("chat_voice_mode_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        WaveformIcon(
-                            color = PureWhite,
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 }
             }
@@ -743,7 +832,7 @@ fun ChatGptInputBar(
 }
 
 /**
- * 4 vertical audio wave bars matching the voice button in screenshots: ||||
+ * 4 vertical audio wave bars matching the voice button: ||||
  */
 @Composable
 fun WaveformIcon(
@@ -774,14 +863,143 @@ fun WaveformIcon(
 }
 
 /**
+ * Rhythmic vertical audio waveform matching the reference image:
+ * Vertical bars of varying staggered heights in PureWhite with rounded caps.
+ */
+@Composable
+fun VoiceNoteWaveform(
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+    barColor: Color = PureWhite
+) {
+    val transition = rememberInfiniteTransition(label = "waveform_anim")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 6.28318f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "waveform_phase"
+    )
+
+    // Baseline heights modeled precisely from the user's reference image:
+    // Pattern: short, tall, short, medium, tall, short, medium, tall, short, medium, short, tall, medium, tall, short, short
+    val baselineFractions = remember {
+        listOf(0.35f, 0.85f, 0.40f, 0.65f, 0.80f, 0.45f, 0.75f, 0.85f, 0.40f, 0.70f, 0.50f, 0.80f, 0.60f, 0.95f, 0.45f, 0.40f)
+    }
+
+    Canvas(modifier = modifier) {
+        val totalWidth = size.width
+        val totalHeight = size.height
+        val barWidth = 2.4.dp.toPx()
+        val count = baselineFractions.size
+        val availableSpacing = (totalWidth - (barWidth * count)) / (count - 1).coerceAtLeast(1)
+
+        for (i in 0 until count) {
+            val baseH = baselineFractions[i]
+            val effectiveH = if (isPlaying) {
+                val wave = kotlin.math.sin(phase + i * 0.6f).toFloat()
+                (baseH * (0.65f + 0.35f * wave)).coerceIn(0.25f, 1.0f)
+            } else {
+                baseH
+            }
+
+            val actualBarHeight = totalHeight * effectiveH
+            val x = i * (barWidth + availableSpacing) + barWidth / 2f
+            val top = (totalHeight - actualBarHeight) / 2f
+            val bottom = top + actualBarHeight
+
+            drawLine(
+                color = barColor,
+                start = Offset(x, top),
+                end = Offset(x, bottom),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+/**
+ * Stadium pill Voice Note capsule matching user's reference image:
+ * - Black background
+ * - Crisp white border
+ * - Circular white ring button on the left with play / pause icon
+ * - Center vertical audio waveform bars in pure white
+ * - Right duration timestamp in pure white (e.g. "0:05")
+ */
+@Composable
+fun VoiceNoteCapsule(
+    isPlaying: Boolean,
+    onTogglePlay: () -> Unit,
+    durationText: String = "0:05",
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(32.dp),
+        color = TrueBlack,
+        border = BorderStroke(1.5.dp, PureWhite),
+        modifier = modifier.height(52.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left circular button with white border ring (matching the ring in the reference image)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, PureWhite, CircleShape)
+                    .clickable { onTogglePlay() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Stop Voice Note" else "Play Voice Note",
+                    tint = PureWhite,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Center vertical waveform bars in PureWhite
+            VoiceNoteWaveform(
+                isPlaying = isPlaying,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(26.dp),
+                barColor = PureWhite
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Right duration timestamp in PureWhite
+            Text(
+                text = durationText,
+                color = PureWhite,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+/**
  * Individual Chat Message Row:
- * - User: Right-aligned blue bubble (#132B6E)
+ * - User: Right-aligned bubble, OR Stadium Voice Note Capsule if message was recorded
  * - Assistant: Left-aligned pure text with formatted markdown, formulas, diagrams, and action icons!
  */
 @Composable
 fun ChatGptMessageItem(
     message: ChatMessage,
     isSpeakingThis: Boolean,
+    isPlayingVoiceNote: Boolean = false,
+    onTogglePlayVoiceNote: () -> Unit = {},
     onSpeak: () -> Unit,
     onStopSpeak: () -> Unit,
     onLike: (Boolean) -> Unit,
@@ -790,38 +1008,73 @@ fun ChatGptMessageItem(
     val context = LocalContext.current
 
     if (message.sender == MessageSender.USER) {
-        // User Message (Right Aligned Bubble)
+        // User Message (Right Aligned Bubble / Voice Note Capsule)
         Row(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.End
         ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = ChatGptUserBubble,
-                modifier = Modifier.widthIn(max = 280.dp)
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    if (message.attachedImage != null) {
-                        Image(
-                            bitmap = message.attachedImage.asImageBitmap(),
-                            contentDescription = "Attached homework",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .padding(bottom = 6.dp),
-                            contentScale = ContentScale.Crop
+            if (message.isVoiceNote) {
+                // Stadium capsule matching user reference image:
+                // Black background, white border, left circular ring with play/stop,
+                // center white waveform bars, right duration like "0:05"
+                Column(horizontalAlignment = Alignment.End) {
+                    VoiceNoteCapsule(
+                        isPlaying = isPlayingVoiceNote,
+                        onTogglePlay = onTogglePlayVoiceNote,
+                        durationText = formatVoiceDuration(message.voiceDurationSeconds),
+                        modifier = Modifier.widthIn(min = 230.dp, max = 295.dp)
+                    )
+                    if (message.text.isNotBlank() && message.text != "Voice note explanation request") {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = TextMutedGray,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = message.text,
+                                color = TextMutedGray,
+                                fontSize = 11.sp,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = ChatGptUserBubble,
+                    modifier = Modifier.widthIn(max = 280.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        if (message.attachedImage != null) {
+                            Image(
+                                bitmap = message.attachedImage.asImageBitmap(),
+                                contentDescription = "Attached homework",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(140.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .padding(bottom = 6.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Text(
+                            text = message.text,
+                            color = PureWhite,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 22.sp
                         )
                     }
-                    Text(
-                        text = message.text,
-                        color = PureWhite,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Normal,
-                        lineHeight = 22.sp
-                    )
                 }
             }
         }
@@ -832,93 +1085,34 @@ fun ChatGptMessageItem(
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         ) {
-            // Main Text (Pure clean text matching Screenshot 2)
-            Text(
-                text = message.text,
-                color = PureWhite,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Normal,
-                lineHeight = 23.sp
+            // Rich Formatted Message Content: Headings, Bullet Lists, Mathematical Equations, and Code Blocks
+            AssistantRichMessageContent(
+                text = message.text
             )
 
-            // Educational Diagram if relevant
-            if (message.diagramType != "none" && message.diagramType.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                EducationalDiagramView(
-                    diagramType = message.diagramType,
-                    title = message.diagramTitle
-                )
-            }
-
-            // Action Icons Row:
-            // [▶ Play / ⏹ Stop Voice] [📋 Copy] [👍 Like] [👎 Dislike] [🔗 Share] [⋮ More]
-            Spacer(modifier = Modifier.height(10.dp))
+            // Action Icons Row matching Screenshot 3:
+            // [📋 Copy] [👍 Like] [👎 Dislike] [🔊 Volume / Speak] [🔗 Share] [⋮ More]
+            Spacer(modifier = Modifier.height(14.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Play Voice Button (placed right by Copy button)
-                Surface(
-                    onClick = {
-                        if (isSpeakingThis) onStopSpeak() else onSpeak()
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSpeakingThis) ChatGptBlueWave.copy(alpha = 0.25f) else ChatGptPillDark,
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (isSpeakingThis) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = if (isSpeakingThis) "Stop Voice" else "Play Voice",
-                            tint = if (isSpeakingThis) ChatGptBlueWave else PureWhite,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isSpeakingThis) "Stop" else "Play",
-                            color = if (isSpeakingThis) ChatGptBlueWave else PureWhite,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                // 1. Copy icon
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Copy explanation",
+                    tint = ChatGptIconGray,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Study Buddy Explanation", message.text))
+                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        }
+                )
 
-                // 2. Copy Button (placed right next to Play button)
-                Surface(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Study Buddy Explanation", message.text))
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    color = ChatGptPillDark,
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy",
-                            tint = PureWhite,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Copy",
-                            color = PureWhite,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // 3. Thumbs Up
+                // 2. Thumbs Up
                 Icon(
                     imageVector = if (message.isLiked == true) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
                     contentDescription = "Like",
@@ -928,7 +1122,7 @@ fun ChatGptMessageItem(
                         .clickable { onLike(true) }
                 )
 
-                // 4. Thumbs Down
+                // 3. Thumbs Down
                 Icon(
                     imageVector = if (message.isLiked == false) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
                     contentDescription = "Dislike",
@@ -938,7 +1132,19 @@ fun ChatGptMessageItem(
                         .clickable { onLike(false) }
                 )
 
-                // 5. Share
+                // 4. Speaker / Read Aloud icon
+                Icon(
+                    imageVector = if (isSpeakingThis) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+                    contentDescription = if (isSpeakingThis) "Stop audio" else "Read aloud",
+                    tint = if (isSpeakingThis) PureWhite else ChatGptIconGray,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable {
+                            if (isSpeakingThis) onStopSpeak() else onSpeak()
+                        }
+                )
+
+                // 5. Share icon
                 Icon(
                     imageVector = Icons.Default.Share,
                     contentDescription = "Share",
@@ -955,7 +1161,7 @@ fun ChatGptMessageItem(
                         }
                 )
 
-                // 6. Overflow dots
+                // 6. Overflow More Options icon
                 var showMsgMenu by remember { mutableStateOf(false) }
                 Box {
                     Icon(
@@ -963,7 +1169,7 @@ fun ChatGptMessageItem(
                         contentDescription = "More",
                         tint = ChatGptIconGray,
                         modifier = Modifier
-                            .size(17.dp)
+                            .size(18.dp)
                             .clickable { showMsgMenu = true }
                     )
                     DropdownMenu(
@@ -989,6 +1195,352 @@ fun ChatGptMessageItem(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+fun cleanMathSymbols(str: String): String {
+    return str
+        .replace("\\times", "×")
+        .replace("\\cdot", "·")
+        .replace("\\div", "÷")
+        .replace("\\pm", "±")
+        .replace("\\approx", "≈")
+        .replace("\\neq", "≠")
+        .replace("\\le", "≤")
+        .replace("\\ge", "≥")
+        .replace("\\sqrt", "√")
+        .replace("\\to", "→")
+        .replace("\\rightarrow", "→")
+        .replace("\\text", "")
+        .replace("\\mathrm", "")
+        .replace("\\mathbf", "")
+        .replace("{", "")
+        .replace("}", "")
+        .replace("\\ ", " ")
+        .replace("\\", "")
+        .trim()
+}
+
+data class MathFraction(
+    val prefix: String,
+    val numerator: String,
+    val denominator: String,
+    val suffix: String
+)
+
+fun parseMathFraction(raw: String): MathFraction? {
+    val fracRegex = Regex("""^(.*?)\\frac\{([^}]+)\}\{([^}]+)\}(.*)$""")
+    val match = fracRegex.find(raw)
+    if (match != null) {
+        return MathFraction(
+            prefix = match.groupValues[1].replace(Regex("""^\$\$|\$\$$"""), "").trim(),
+            numerator = match.groupValues[2].trim(),
+            denominator = match.groupValues[3].trim(),
+            suffix = match.groupValues[4].replace(Regex("""^\$\$|\$\$$"""), "").trim()
+        )
+    }
+    return null
+}
+
+@Composable
+fun MathEquationView(
+    rawEquation: String,
+    modifier: Modifier = Modifier
+) {
+    val clean = rawEquation.trim()
+        .removePrefix("$$").removeSuffix("$$")
+        .removePrefix("\\[").removeSuffix("\\]")
+        .trim()
+
+    val fraction = remember(clean) { parseMathFraction(clean) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (fraction != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (fraction.prefix.isNotBlank()) {
+                    Text(
+                        text = cleanMathSymbols(fraction.prefix) + " ",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            fontSize = 18.sp,
+                            color = PureWhite
+                        )
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Text(
+                        text = cleanMathSymbols(fraction.numerator),
+                        style = TextStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            fontSize = 16.sp,
+                            color = PureWhite
+                        ),
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.widthIn(min = 36.dp),
+                        thickness = 1.5.dp,
+                        color = PureWhite
+                    )
+                    Text(
+                        text = cleanMathSymbols(fraction.denominator),
+                        style = TextStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            fontSize = 16.sp,
+                            color = PureWhite
+                        ),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                if (fraction.suffix.isNotBlank()) {
+                    Text(
+                        text = " " + cleanMathSymbols(fraction.suffix),
+                        style = TextStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            fontSize = 18.sp,
+                            color = PureWhite
+                        )
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = cleanMathSymbols(clean),
+                style = TextStyle(
+                    fontFamily = FontFamily.Serif,
+                    fontStyle = FontStyle.Italic,
+                    fontSize = 18.sp,
+                    color = PureWhite
+                )
+            )
+        }
+    }
+}
+
+@Composable
+fun CodeBlockView(
+    language: String,
+    code: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF14171E),
+        border = BorderStroke(1.dp, Color(0xFF282C37)),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E222C))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = language.ifEmpty { "code" },
+                    color = TextMutedGray,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Code", code))
+                            Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT).show()
+                        }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy code",
+                        tint = PureWhite,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Copy code",
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(14.dp)
+            ) {
+                Text(
+                    text = code,
+                    color = Color(0xFFE6EDF3),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AssistantRichMessageContent(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        val codeBlockRegex = Regex("""```([a-zA-Z]*)\n([\s\S]*?)```""")
+        var lastIndex = 0
+        val matches = codeBlockRegex.findAll(text).toList()
+
+        if (matches.isEmpty()) {
+            RenderNonCodeBlocks(text)
+        } else {
+            matches.forEach { match ->
+                val preText = text.substring(lastIndex, match.range.first)
+                if (preText.isNotBlank()) {
+                    RenderNonCodeBlocks(preText)
+                }
+                val lang = match.groupValues[1]
+                val code = match.groupValues[2].trimEnd()
+                CodeBlockView(language = lang, code = code)
+                lastIndex = match.range.last + 1
+            }
+            if (lastIndex < text.length) {
+                val postText = text.substring(lastIndex)
+                if (postText.isNotBlank()) {
+                    RenderNonCodeBlocks(postText)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenderNonCodeBlocks(rawText: String) {
+    val lines = rawText.lines()
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i].trim()
+        if (line.isEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            i++
+            continue
+        }
+
+        // Check for display equation $$...$$ or \frac{...}{...}
+        if (line.startsWith("$$") || line.contains("\\frac{")) {
+            MathEquationView(rawEquation = line)
+            i++
+            continue
+        }
+
+        // Bullet point: • or -
+        if (line.startsWith("•") || line.startsWith("- ") || line.startsWith("* ")) {
+            val content = line.removePrefix("•").removePrefix("-").removePrefix("*").trim()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp)
+            ) {
+                Text(
+                    text = "• ",
+                    color = PureWhite,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = buildFormattedText(content),
+                    color = PureWhite,
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp
+                )
+            }
+            i++
+            continue
+        }
+
+        // Headings, numbered list items, answers, regular paragraphs
+        val isHeading = line.startsWith("**") && line.endsWith("**") && line.length > 4 && !line.contains("→")
+        val isNumberedList = Regex("""^\d+\.\s+""").containsMatchIn(line)
+        val isAnswer = line.startsWith("Answer:", ignoreCase = true) || line.startsWith("**Answer:", ignoreCase = true)
+
+        if (isHeading) {
+            Text(
+                text = buildFormattedText(line),
+                color = PureWhite,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+            )
+        } else if (isAnswer) {
+            Text(
+                text = buildFormattedText(line),
+                color = PureWhite,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+        } else if (isNumberedList) {
+            Text(
+                text = buildFormattedText(line),
+                color = PureWhite,
+                fontSize = 15.sp,
+                lineHeight = 23.sp,
+                modifier = Modifier.padding(vertical = 3.dp)
+            )
+        } else {
+            Text(
+                text = buildFormattedText(line),
+                color = PureWhite,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Normal,
+                lineHeight = 23.sp,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
+        }
+        i++
+    }
+}
+
+fun buildFormattedText(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        val parts = text.split("**")
+        parts.forEachIndexed { index, part ->
+            if (index % 2 == 1) {
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = PureWhite)) {
+                    append(part)
+                }
+            } else {
+                append(part)
             }
         }
     }

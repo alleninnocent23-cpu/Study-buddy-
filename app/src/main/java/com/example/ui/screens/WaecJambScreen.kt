@@ -133,6 +133,24 @@ fun WaecJambScreen(
     onStopAudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var activeSubView by remember(state.config.examType) {
+        mutableStateOf(
+            if (state.config.examType == ExamType.WAEC) WaecHubSubView.WAEC_HUB else WaecHubSubView.JAMB_HUB
+        )
+    }
+
+    var showSubjectSelectorDialog by remember { mutableStateOf(false) }
+    var activeDialogTrack by remember { mutableStateOf("All") }
+
+    if (showSubjectSelectorDialog) {
+        SubjectSelectionDialog(
+            track = activeDialogTrack,
+            selectedSubjects = state.config.selectedSubjects,
+            onDismiss = { showSubjectSelectorDialog = false },
+            onToggleSubject = onToggleSubject
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -145,29 +163,60 @@ fun WaecJambScreen(
                     .fillMaxWidth()
             ) {
                 when (state.stage) {
-                    ExamScreenStage.GET_STARTED -> {
-                        ExamGetStartedView(
-                            onGetStarted = onProceedFromGetStarted,
-                            onExit = onExitExamPrep
-                        )
-                    }
+                    ExamScreenStage.GET_STARTED,
                     ExamScreenStage.SELECTION_SETUP -> {
-                        ExamSelectionSetupView(
-                            state = state,
-                            onBack = onBackToGetStarted,
-                            onSelectExam = onSelectExam,
-                            onSelectSubject = onSelectSubject,
-                            onToggleSubject = onToggleSubject,
-                            onSetSelectedSubjects = onSetSelectedSubjects,
-                            onSelectFacultyTrack = onSelectFacultyTrack,
-                            onSelectYear = onSelectYear,
-                            onSelectYearRange = onSelectYearRange,
-                            onSelectTopic = onSelectTopic,
-                            onSelectDifficulty = onSelectDifficulty,
-                            onSelectMode = onSelectMode,
-                            onSelectQuestionCount = onSelectQuestionCount,
-                            onNext = onStartExam
-                        )
+                        when (activeSubView) {
+                            WaecHubSubView.WAEC_HUB -> {
+                                WaecHubView(
+                                    state = state,
+                                    onOpenSubjects = { activeSubView = WaecHubSubView.SUBJECTS },
+                                    onOpenSubjectDialog = {
+                                        activeDialogTrack = "All"
+                                        showSubjectSelectorDialog = true
+                                    },
+                                    onToggleSubject = onToggleSubject,
+                                    onSelectYearRange = onSelectYearRange,
+                                    onSelectMode = onSelectMode,
+                                    onStartExam = onStartExam
+                                )
+                            }
+                            WaecHubSubView.JAMB_HUB -> {
+                                JambHubView(
+                                    state = state,
+                                    onOpenSubjects = { activeSubView = WaecHubSubView.SUBJECTS },
+                                    onOpenSubjectDialog = { track ->
+                                        activeDialogTrack = track
+                                        showSubjectSelectorDialog = true
+                                    },
+                                    onSelectFacultyTrack = onSelectFacultyTrack,
+                                    onToggleSubject = onToggleSubject,
+                                    onSelectYearRange = onSelectYearRange,
+                                    onSelectMode = onSelectMode,
+                                    onStartExam = onStartExam
+                                )
+                            }
+                            WaecHubSubView.SUBJECTS -> {
+                                WaecSubjectsDirectoryView(
+                                    examType = state.config.examType,
+                                    selectedSubjects = state.config.selectedSubjects,
+                                    onBack = {
+                                        activeSubView = if (state.config.examType == ExamType.WAEC) WaecHubSubView.WAEC_HUB else WaecHubSubView.JAMB_HUB
+                                    },
+                                    onToggleSubject = onToggleSubject,
+                                    onSelectAndStart = { sub ->
+                                        onSelectSubject(sub)
+                                        onStartExam()
+                                    }
+                                )
+                            }
+                            WaecHubSubView.FORMULAS -> {
+                                StudyNoteFormulaView(
+                                    onBack = {
+                                        activeSubView = if (state.config.examType == ExamType.WAEC) WaecHubSubView.WAEC_HUB else WaecHubSubView.JAMB_HUB
+                                    }
+                                )
+                            }
+                        }
                     }
                     ExamScreenStage.ACTIVE_EXAM -> {
                         ActiveExamView(
@@ -194,11 +243,21 @@ fun WaecJambScreen(
                 }
             }
 
-            // Bottom bar to navigate from WAEC and JAMB to help study
-            if (state.stage != ExamScreenStage.GET_STARTED) {
-                WaecJambBottomStudyBar(
-                    currentExam = state.config.examType,
-                    onSelectExam = onSelectExam
+            // 5-tab Bottom Navigation bar matching reference image in pure Black & White
+            if (state.stage == ExamScreenStage.GET_STARTED || state.stage == ExamScreenStage.SELECTION_SETUP) {
+                WaecJambUnifiedBottomNav(
+                    activeSubView = activeSubView,
+                    onNavigateToAi = onExitExamPrep,
+                    onNavigateToStudy = { activeSubView = WaecHubSubView.SUBJECTS },
+                    onNavigateToWaec = {
+                        onSelectExam(ExamType.WAEC)
+                        activeSubView = WaecHubSubView.WAEC_HUB
+                    },
+                    onNavigateToJamb = {
+                        onSelectExam(ExamType.JAMB)
+                        activeSubView = WaecHubSubView.JAMB_HUB
+                    },
+                    onNavigateToStudyNote = { activeSubView = WaecHubSubView.FORMULAS }
                 )
             }
         }
@@ -1702,16 +1761,16 @@ private fun ActiveExamView(
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 10.dp,
-                    borderColor = Color(0xFF22C55E).copy(alpha = 0.5f),
-                    backgroundColor = Color(0xFF0F1B12)
+                    borderColor = BorderLight,
+                    backgroundColor = Color(0xFF161616)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF22C55E), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Check, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "Correct Answer: Option ${question.correctAnswerLetter}",
-                                color = Color(0xFF4ADE80),
+                                color = PureWhite,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1729,12 +1788,12 @@ private fun ActiveExamView(
                         // Why others are wrong breakdown
                         if (question.whyOthersAreWrong.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            HorizontalDivider(color = Color(0x334ADE80))
+                            HorizontalDivider(color = Color(0xFF333333))
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Text(
                                 text = "WHY OTHER OPTIONS ARE WRONG:",
-                                color = Color(0xFFFFD166),
+                                color = PureWhite,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1743,7 +1802,7 @@ private fun ActiveExamView(
                             question.whyOthersAreWrong.forEach { (opt, reason) ->
                                 Text(
                                     text = "• Option $opt: $reason",
-                                    color = Color(0xFFDDDDDD),
+                                    color = TextMutedGray,
                                     fontSize = 11.sp,
                                     lineHeight = 16.sp,
                                     modifier = Modifier.padding(vertical = 2.dp)
@@ -1757,7 +1816,7 @@ private fun ActiveExamView(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // XP Meter Bar in Active Exam
+        // XP Meter Bar in Active Exam (Black & White)
         val answeredExamCount = state.questions.count { it.userSelectedIndex != null }
         val totalExamQuestions = state.questions.size
         val earnedExamXp = answeredExamCount * 10
@@ -1766,8 +1825,8 @@ private fun ActiveExamView(
 
         Surface(
             shape = RoundedCornerShape(10.dp),
-            color = Color(0xFF141923),
-            border = BorderStroke(1.dp, Color(0xFF2B3A52)),
+            color = Color(0xFF141414),
+            border = BorderStroke(1.dp, Color(0xFF333333)),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
@@ -1779,13 +1838,13 @@ private fun ActiveExamView(
                 Icon(
                     imageVector = Icons.Default.Stars,
                     contentDescription = null,
-                    tint = Color(0xFFFBBF24),
+                    tint = PureWhite,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "XP METER",
-                    color = Color(0xFFFBBF24),
+                    color = PureWhite,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -1797,8 +1856,8 @@ private fun ActiveExamView(
                         .weight(1f)
                         .height(6.dp)
                         .clip(CircleShape),
-                    color = Color(0xFFF59E0B),
-                    trackColor = Color(0xFF0D121B)
+                    color = PureWhite,
+                    trackColor = Color(0xFF282828)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
@@ -1947,8 +2006,8 @@ private fun ExamResultsView(
         if (isFailed) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF261214),
-                border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                color = Color(0xFF141414),
+                border = BorderStroke(1.dp, PureWhite),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
@@ -1965,13 +2024,13 @@ private fun ExamResultsView(
                             Column {
                                 Text(
                                     text = "You can do better!",
-                                    color = Color(0xFFFCA5A5),
+                                    color = PureWhite,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = "Score: ${state.scorePercentage}% • Passing target not reached",
-                                    color = Color(0xFFF87171),
+                                    color = TextMutedGray,
                                     fontSize = 11.sp
                                 )
                             }
@@ -1980,7 +2039,7 @@ private fun ExamResultsView(
                             onClick = onNewExam,
                             modifier = Modifier.size(28.dp)
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFFFCA5A5), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = PureWhite, modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -1988,7 +2047,7 @@ private fun ExamResultsView(
 
                     Text(
                         text = "Every great scholar faced setbacks before mastery. Review the detailed explanations and solutions below, then take another attempt. You've got this!",
-                        color = Color(0xFFFEE2E2),
+                        color = PureWhite.copy(alpha = 0.85f),
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
@@ -2362,7 +2421,7 @@ private fun SubjectSelectionDialog(
                         )
                         Text(
                             text = "${selectedSubjects.size} / 10 Selected (Min 4, Max 10)",
-                            color = if (selectedSubjects.size in 4..10) Color(0xFF4ADE80) else Color(0xFFFFB74D),
+                            color = if (selectedSubjects.size in 4..10) PureWhite else TextMutedGray,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )

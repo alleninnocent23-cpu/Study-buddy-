@@ -139,6 +139,8 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     val isListening by viewModel.voiceManager.isListening.collectAsState()
     val voiceGender by viewModel.voiceGender.collectAsState()
     val isRecordingAudio by viewModel.isRecordingAudio.collectAsState()
+    val recordingDurationSeconds by viewModel.recordingDurationSeconds.collectAsState()
+    val currentlyPlayingVoiceNoteId by viewModel.currentlyPlayingVoiceNoteId.collectAsState()
 
     val savedSessions by viewModel.savedSessions.collectAsState()
     val savedQuizzes by viewModel.savedQuizzes.collectAsState()
@@ -591,6 +593,9 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             voiceGender = voiceGender,
                             onVoiceGenderChange = { viewModel.setVoiceGender(it) },
                             isRecordingAudio = isRecordingAudio,
+                            recordingDurationSeconds = recordingDurationSeconds,
+                            currentlyPlayingVoiceNoteId = currentlyPlayingVoiceNoteId,
+                            onTogglePlayVoiceNote = { id, text -> viewModel.togglePlayVoiceNote(id, text) },
                             onHoldStartRecording = { viewModel.startHoldRecording() },
                             onHoldFinishRecording = { viewModel.finishHoldRecording() },
                             onHoldCancelRecording = { viewModel.cancelHoldRecording() }

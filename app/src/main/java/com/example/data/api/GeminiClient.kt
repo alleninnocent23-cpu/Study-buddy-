@@ -74,67 +74,28 @@ object GeminiClient {
             .replace(Regex("\\$\\s*\\(\\s*\\)"), "")
             .replace(Regex("\\?\\s*\\$"), "")
 
-        // 3. Convert LaTeX fractions: \frac{a}{b} -> (a) / (b)
-        val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
-        while (fracRegex.containsMatchIn(text)) {
-            text = text.replace(fracRegex, "($1) / ($2)")
-        }
-
-        // 4. Convert LaTeX square roots: \sqrt{x} -> √(x)
-        text = text.replace(Regex("\\\\sqrt\\[([^}]+)\\]\\{([^}]+)\\}"), "√[$1]($2)")
-        text = text.replace(Regex("\\\\sqrt\\{([^}]+)\\}"), "√($1)")
-
-        // 5. Convert LaTeX text blocks: \text{...}, \mathrm{...}, \mathbf{...}, \boxed{...}
-        text = text.replace(Regex("\\\\(text|mathrm|mathbf|mathit|boxed)\\{([^}]+)\\}"), "$2")
-
-        // 6. Convert LaTeX math symbols to clean Unicode symbols
-        val mathReplacements = listOf(
-            Regex("\\\\cdot") to "·",
-            Regex("\\\\times") to "×",
-            Regex("\\\\div") to "÷",
-            Regex("\\\\pm") to "±",
-            Regex("\\\\mp") to "∓",
-            Regex("\\\\approx") to "≈",
-            Regex("\\\\neq") to "≠",
-            Regex("\\\\(le|leq)\\b") to "≤",
-            Regex("\\\\(ge|geq)\\b") to "≥",
-            Regex("\\\\infty") to "∞",
-            Regex("\\\\pi\\b") to "π",
-            Regex("\\\\theta\\b") to "θ",
-            Regex("\\\\alpha\\b") to "α",
-            Regex("\\\\beta\\b") to "β",
-            Regex("\\\\gamma\\b") to "γ",
-            Regex("\\\\lambda\\b") to "λ",
-            Regex("\\\\mu\\b") to "μ",
-            Regex("\\\\Delta\\b") to "Δ",
-            Regex("\\\\Sigma\\b") to "Σ",
-            Regex("\\\\(degree|circ)\\b") to "°",
-            Regex("\\\\to\\b|\\\\rightarrow\\b") to "→"
-        )
-        for ((pattern, replacement) in mathReplacements) {
-            text = text.replace(pattern, replacement)
-        }
-
-        // 7. Superscripts and powers
-        text = text.replace("^{2}", "²").replace("^2", "²")
-            .replace("^{3}", "³").replace("^3", "³")
-            .replace("^{n}", "ⁿ").replace("^n", "ⁿ")
-            .replace("^{0}", "⁰").replace("^{1}", "¹")
-
-        // 8. Strip LaTeX math delimiters $$, $, \(, \), \[, \]
-        text = text.replace("$$", "")
-            .replace("\\[", "").replace("\\]", "")
-            .replace("\\(", "").replace("\\)", "")
-            .replace("$", "")
-
-        // 9. Clean any leftover backslashes before words
-        text = text.replace(Regex("\\\\([a-zA-Z]+)"), "$1")
-
-        // 10. Clean multiple spaces and excessive blank lines
+        // Clean any leftover double backslashes
         text = text.replace(Regex("[ \\t]+"), " ")
             .replace(Regex("\\n{3,}"), "\n\n")
 
         return text.trim()
+    }
+
+    fun cleanForSpeech(rawText: String): String {
+        var text = rawText
+        text = text.replace(Regex("```[a-zA-Z]*\\n[\\s\\S]*?```"), "Code implementation shown in chat.")
+        val fracRegex = Regex("\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}")
+        while (fracRegex.containsMatchIn(text)) {
+            text = text.replace(fracRegex, "$1 divided by $2")
+        }
+        text = text.replace("$$", "")
+            .replace("\\[", "").replace("\\]", "")
+            .replace("\\(", "").replace("\\)", "")
+            .replace("$", "")
+            .replace("**", "")
+            .replace("•", "")
+            .replace("→", "equals")
+        return cleanAcademicText(text)
     }
 
     fun isConversationalQuery(query: String): Boolean {
@@ -243,24 +204,40 @@ object GeminiClient {
             
             $fieldDirective
             
-            Provide a clean, rigorous, professional academic teaching explanation.
-            CRITICAL FORMATTING INSTRUCTIONS:
-            - NEVER use LaTeX math notation or raw math delimiters (STRICTLY FORBIDDEN: do not write $$, $, \(, \), \[, \], or ?$$()).
-            - NEVER write raw code commands like \frac, \sqrt, \cdot, \times, \pm.
-            - Write equations in clear, natural readable text: for example, write "x = (-b ± √(b² - 4ac)) / (2a)" or "a² + b² = c²" or "F = m · a".
-            - Do NOT use emojis, conversational slang, or decorative symbols.
-            - Present the explanation in a structured, clear, and easy-to-read textbook style:
-            1. Overview and Core Concept
-            2. Step-by-Step Breakdown
-            3. Key Formulas and Principles (if applicable)
-            4. Worked Example with clear mathematical or analytical calculations
-            5. Key Takeaways
-            
-            At the very end of your response, determine if an educational diagram would be helpful.
-            If yes, add ONE line in this exact format:
-            [DIAGRAM:type:title]
-            Allowed types: cartesian_graph, geometry_triangle, geometry_circle, physics_vector, chemistry_atom, cell_biology.
-            If no diagram is needed, write [DIAGRAM:none:none].
+            FORMAT YOUR RESPONSE IN THIS EXACT PROFESSIONAL, FRIENDLY, AND PEDAGOGICAL TUTOR STYLE (matching the ChatGPT WAEC/JAMB tutor layout):
+            1. Friendly opening acknowledging the topic:
+               "Absolutely. Let's start **$topic** from the basics, in a way that helps with **WAEC/JAMB**."
+            2. Definition & Core Concept (bold section title and bold summary):
+               **What is $topic?**
+               **Clear definition of what it is, how it works, and why it matters.**
+            3. "For example:" with clean bullet points using arrows:
+               • Why does a ball fall? → **Gravity**
+               • Why does a car speed up? → **Force**
+            4. Numbered key areas or syllabus topics with em-dashes:
+               **The main areas of $topic**
+               1. **Concept** — explanation
+               2. **Concept** — explanation
+            5. First important idea / Worked Example with mathematical equations or code blocks:
+               **First important idea: [Subtopic]**
+               Suppose you [practical everyday problem]...
+               Your average [quantity] is:
+               
+               ${'$'}${'$'}Formula = \\frac{Numerator}{Denominator}${'$'}${'$'}
+               
+               So:
+               
+               ${'$'}${'$'}Formula = \\frac{Numbers}{Numbers} = Result${'$'}${'$'}
+               
+               **Answer: Result**
+               
+               (For programming or computer science topics, write clean fenced code blocks:
+               ```python
+               # Python code example
+               ```)
+            6. Encouraging closing inviting further WAEC/JAMB mastery:
+               "Think of $topic as learning the rules behind things you see every day. Once you understand the idea, the formulas become much easier.
+               
+               If you want, I can teach you **WAEC/JAMB $subject** from Topic 1 all the way to the hardest topics, with examples and questions after each topic."
             """.trimIndent()
         }
 

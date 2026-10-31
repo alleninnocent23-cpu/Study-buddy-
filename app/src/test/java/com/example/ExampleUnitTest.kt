@@ -184,4 +184,22 @@ class ExampleUnitTest {
             assertTrue(preset.subjects.size in 4..10)
         }
     }
+
+    @Test
+    fun testVoiceNoteCapsuleFormattingAndModel() {
+        val formatted5Secs = com.example.ui.components.formatVoiceDuration(5)
+        assertEquals("0:05", formatted5Secs)
+
+        val formatted65Secs = com.example.ui.components.formatVoiceDuration(65)
+        assertEquals("1:05", formatted65Secs)
+
+        val voiceMessage = com.example.viewmodel.ChatMessage(
+            sender = com.example.viewmodel.MessageSender.USER,
+            text = "Voice note question",
+            isVoiceNote = true,
+            voiceDurationSeconds = 5
+        )
+        assertTrue(voiceMessage.isVoiceNote)
+        assertEquals(5, voiceMessage.voiceDurationSeconds)
+    }
 }

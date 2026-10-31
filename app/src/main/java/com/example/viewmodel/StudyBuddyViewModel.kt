@@ -90,7 +90,9 @@ data class ChatMessage(
     val diagramType: String = "none",
     val diagramTitle: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val isLiked: Boolean? = null // null = unset, true = thumb up, false = thumb down
+    val isLiked: Boolean? = null, // null = unset, true = thumb up, false = thumb down
+    val isVoiceNote: Boolean = false,
+    val voiceDurationSeconds: Int = 5
 )
 
 data class AuthState(
@@ -455,7 +457,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         tutorState.value = tutorState.value.copy(messages = updated)
     }
 
-    fun sendChatMessage(overridePrompt: String? = null) {
+    fun sendChatMessage(
+        overridePrompt: String? = null,
+        isVoiceNote: Boolean = false,
+        voiceDurationSeconds: Int = 5
+    ) {
         val state = tutorState.value
         val inputPrompt = (overridePrompt ?: state.topicInput).trim()
         val image = attachedImage.value
@@ -471,7 +477,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             sender = MessageSender.USER,
             text = promptText,
             attachedImage = image,
-            attachedFileName = fileName
+            attachedFileName = fileName,
+            isVoiceNote = isVoiceNote,
+            voiceDurationSeconds = voiceDurationSeconds
         )
         val updatedMessages = state.messages + userMsg
 
@@ -551,6 +559,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     val isRecordingAudio = MutableStateFlow(false)
+    val recordingDurationSeconds = MutableStateFlow(0)
+    val currentlyPlayingVoiceNoteId = MutableStateFlow<String?>(null)
+    private var recordingTimerJob: kotlinx.coroutines.Job? = null
 
     fun startVoiceInput() {
         voiceManager.startListening { transcribedText ->
@@ -561,7 +572,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * 'Study Talk' in the blue button feature:
+     * 'Study Talk' in the voice recorder button feature:
      * Student speaks a question verbally and receives instantaneous audio feedback from the Gemini model.
      */
     fun startStudyTalk(spokenPrompt: String) {
@@ -571,41 +582,82 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Hold blue button to record audio and automatically send it to chat once released.
+     * Hold or tap voice recorder button to record a voice note and automatically send it to chat once released/finished.
      */
     fun startHoldRecording() {
         isRecordingAudio.value = true
+        recordingDurationSeconds.value = 0
+        recordingTimerJob?.cancel()
+        recordingTimerJob = viewModelScope.launch {
+            while (isRecordingAudio.value) {
+                kotlinx.coroutines.delay(1000)
+                recordingDurationSeconds.value += 1
+            }
+        }
         voiceManager.stopSpeaking()
         voiceManager.startListening { transcribedText ->
             if (isRecordingAudio.value && transcribedText.isNotBlank()) {
+                val dur = maxOf(1, recordingDurationSeconds.value)
                 isRecordingAudio.value = false
-                sendChatMessage(overridePrompt = transcribedText)
+                recordingTimerJob?.cancel()
+                sendChatMessage(
+                    overridePrompt = transcribedText,
+                    isVoiceNote = true,
+                    voiceDurationSeconds = dur
+                )
             }
         }
     }
 
     fun finishHoldRecording() {
         if (!isRecordingAudio.value) return
+        val dur = maxOf(1, recordingDurationSeconds.value)
         isRecordingAudio.value = false
+        recordingTimerJob?.cancel()
         val currentRecognized = voiceManager.recognizedText.value.trim()
         voiceManager.stopListening()
-        if (currentRecognized.isNotBlank()) {
-            sendChatMessage(overridePrompt = currentRecognized)
-        }
+        val textToSend = if (currentRecognized.isNotBlank()) currentRecognized else "Voice note explanation request"
+        sendChatMessage(
+            overridePrompt = textToSend,
+            isVoiceNote = true,
+            voiceDurationSeconds = dur
+        )
     }
 
     fun cancelHoldRecording() {
         isRecordingAudio.value = false
+        recordingTimerJob?.cancel()
+        recordingDurationSeconds.value = 0
         voiceManager.stopListening()
     }
 
     fun stopVoiceInput() {
         isRecordingAudio.value = false
+        recordingTimerJob?.cancel()
+        recordingDurationSeconds.value = 0
         voiceManager.stopListening()
     }
 
+    fun togglePlayVoiceNote(messageId: String, text: String) {
+        if (currentlyPlayingVoiceNoteId.value == messageId) {
+            currentlyPlayingVoiceNoteId.value = null
+            voiceManager.stopSpeaking()
+        } else {
+            currentlyPlayingVoiceNoteId.value = messageId
+            voiceManager.speak(text)
+            viewModelScope.launch {
+                while (voiceManager.isSpeaking.value) {
+                    kotlinx.coroutines.delay(200)
+                }
+                if (currentlyPlayingVoiceNoteId.value == messageId) {
+                    currentlyPlayingVoiceNoteId.value = null
+                }
+            }
+        }
+    }
+
     fun playExplanation(text: String) {
-        val clean = GeminiClient.cleanAcademicText(text)
+        val clean = GeminiClient.cleanForSpeech(text)
         voiceManager.speak(clean)
     }
 
@@ -863,124 +915,146 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.shutdown()
     }
 
-    // Curated educational fallbacks for 100% reliability with clean, professional teaching structure
+    // Curated educational fallbacks matching the exact friendly tutor and equation layout from user screenshots
     private fun getCuratedExplanation(topic: String, subject: String): ExplanationResult {
         val lower = topic.lowercase()
         return when {
-            lower.contains("pythagor") || lower.contains("triangle") -> {
+            lower.contains("physics") || lower.contains("motion") || lower.contains("speed") || lower.contains("gravity") || lower.contains("force") -> {
                 ExplanationResult(
                     explanationText = """
-                        Overview and Core Concept
-                        The Pythagorean Theorem states that in any right-angled triangle, the area of the square whose side is the hypotenuse is equal to the sum of the areas of the squares on the other two legs.
-                        
-                        Step-by-Step Breakdown
-                        1. Identify the right angle (90 degrees).
-                        2. The side opposite the right angle is the Hypotenuse (c), which is always the longest side.
-                        3. The two sides forming the right angle are legs (a) and (b).
-                        4. Calculate a^2 and b^2, sum them, and take the square root.
-                        
-                        Key Formulas and Principles
-                        • a^2 + b^2 = c^2
-                        • Hypotenuse: c = sqrt(a^2 + b^2)
-                        • Leg a: a = sqrt(c^2 - b^2)
-                        
-                        Worked Example
-                        For a triangle with legs a = 3 cm and b = 4 cm:
-                        c^2 = 3^2 + 4^2 = 9 + 16 = 25
-                        c = sqrt(25) = 5 cm.
-                        
-                        Key Takeaway
-                        Standard integer Pythagorean triples include (3, 4, 5), (5, 12, 13), and (8, 15, 17).
+                        Absolutely. Let’s start **Physics** from the basics, in a way that helps with **WAEC/JAMB**.
+
+                        **What is Physics?**
+                        **Physics is the study of matter, energy, forces, motion, and how things interact with each other.**
+
+                        For example:
+
+                        • Why does a ball fall? → **Gravity**
+                        • Why does a car speed up? → **Force**
+                        • How does electricity flow? → **Electricity**
+                        • Why can we see objects? → **Light**
+                        • How does sound reach your ears? → **Waves**
+
+                        **The main areas of Physics**
+
+                        1. **Measurements** — length, mass, time, temperature, etc.
+                        2. **Motion** — speed, velocity, acceleration.
+                        3. **Forces** — pushing, pulling, friction, gravity.
+                        4. **Energy** — kinetic, potential, heat, electrical energy.
+                        5. **Work and Power** — how forces transfer energy.
+                        6. **Waves** — sound, light, water waves.
+                        7. **Electricity** — current, voltage, resistance and circuits.
+                        8. **Magnetism** — magnets and electromagnetic effects.
+                        9. **Heat** — temperature and transfer of thermal energy.
+                        10. **Modern Physics** — atoms, radioactivity, photons and nuclear physics.
+
+                        **First important idea: Motion**
+                        Suppose you travel **100 metres** in **20 seconds**.
+
+                        Your average speed is:
+
+                        ${'$'}${'$'}Speed = \frac{Distance}{Time}${'$'}${'$'}
+
+                        So:
+
+                        ${'$'}${'$'}Speed = \frac{100}{20} = 5\ m/s${'$'}${'$'}
+
+                        **Answer: 5 m/s**
+
+                        Think of physics as learning the rules behind things you see every day. Once you understand the idea, the formulas become much easier.
+
+                        If you want, I can teach you **WAEC/JAMB Physics** from Topic 1 all the way to the hardest topics, with examples and questions after each topic.
                     """.trimIndent(),
-                    diagramType = "geometry_triangle",
-                    diagramTitle = "Right Triangle & Pythagorean Theorem"
+                    diagramType = "none",
+                    diagramTitle = ""
                 )
             }
-            lower.contains("force") || lower.contains("newton") || lower.contains("gravity") -> {
+            lower.contains("code") || lower.contains("python") || lower.contains("program") || lower.contains("computer") -> {
                 ExplanationResult(
                     explanationText = """
-                        Overview and Core Concept
-                        Newton's Second Law of Motion describes how an object's velocity changes when subjected to an unbalanced net external force. Acceleration is directly proportional to net force and inversely proportional to mass.
-                        
-                        Step-by-Step Breakdown
-                        1. Identify all active forces on the free body: Normal force, gravity, applied force, and friction.
-                        2. Establish the coordinate axes: vertical (y) and horizontal (x).
-                        3. Calculate vertical equilibrium: Sum of F_y = F_N - F_g = 0, meaning F_N = m * g.
-                        4. Determine net horizontal force: F_net = F_applied - F_friction.
-                        5. Solve for acceleration: a = F_net / m.
-                        
-                        Key Formulas and Principles
-                        • Sum of F = m * a
-                        • Weight: F_g = m * g (where g is approximately 9.8 m/s^2)
-                        • Kinetic Friction: f_k = mu_k * F_N
-                        
-                        Worked Example
-                        A 10 kg mass experiences a 50 N forward force with 10 N opposing friction:
-                        F_net = 50 N - 10 N = 40 N
-                        a = 40 N / 10 kg = 4.0 m/s^2.
-                        
-                        Key Takeaway
-                        Net force causes acceleration. If net force is zero, the object maintains constant velocity.
+                        Absolutely. Let’s write clean, modular **Computer Science code** for **WAEC/JAMB**.
+
+                        **Core Concept**
+                        **Writing functions with clear inputs, structured algorithms, and predictable time complexity.**
+
+                        For example:
+                        • Calculate physics formula → **Pure Function**
+                        • Process data values → **Sequential Logic**
+                        • Output formatted result → **String Interpolation**
+
+                        Here is the Python implementation:
+
+                        ```python
+                        def calculate_average_speed(distance_meters: float, time_seconds: float) -> float:
+                            if time_seconds <= 0:
+                                raise ValueError("Time must be positive")
+                            return distance_meters / time_seconds
+
+                        # Example run for 100 metres in 20 seconds:
+                        speed = calculate_average_speed(100.0, 20.0)
+                        print(f"Average Speed: {speed} m/s")  # Output: 5.0 m/s
+                        ```
+
+                        **Key Takeaway**
+                        Functions isolate mathematical logic, ensuring the solution is testable, reusable, and bug-free for exams.
                     """.trimIndent(),
-                    diagramType = "physics_vector",
-                    diagramTitle = "Free Body Force Vectors"
+                    diagramType = "none",
+                    diagramTitle = ""
                 )
             }
-            lower.contains("atom") || lower.contains("electron") || lower.contains("chemistry") -> {
+            lower.contains("pythagor") || lower.contains("triangle") || lower.contains("math") -> {
                 ExplanationResult(
                     explanationText = """
-                        Overview and Core Concept
-                        Atoms are the fundamental building blocks of chemical matter, consisting of a dense central nucleus surrounded by electrons organized in discrete quantized energy levels.
-                        
-                        Step-by-Step Breakdown
-                        1. Nucleus: Contains positively charged protons (p+) and electrically neutral neutrons (n0).
-                        2. Electrons (e-): Negatively charged subatomic particles occupying quantized shells.
-                        3. Atomic Number (Z): The proton count, uniquely identifying the chemical element.
-                        4. Mass Number (A): The sum of protons and neutrons in the nucleus.
-                        
-                        Key Formulas and Principles
-                        • Maximum electron capacity per principal shell: 2n^2 (n=1: 2, n=2: 8, n=3: 18)
-                        • Net electrical charge = Protons - Electrons
-                        
-                        Worked Example (Carbon-12)
-                        Carbon has atomic number 6:
-                        • 6 protons and 6 neutrons in the nucleus.
-                        • Electron configuration: 2 inner electrons (K shell) and 4 valence electrons (L shell).
-                        
-                        Key Takeaway
-                        Valence electrons in the outermost electron shell determine chemical bonding behavior and reactivity.
+                        Absolutely. Let’s master the **Pythagorean Theorem** from the ground up for **WAEC/JAMB Mathematics**.
+
+                        **What is the Pythagorean Theorem?**
+                        **In any right-angled triangle, the area of the square on the hypotenuse is equal to the sum of the areas of the squares on the other two legs.**
+
+                        For example:
+                        • Longest side opposite 90° → **Hypotenuse (c)**
+                        • Other perpendicular sides → **Legs (a and b)**
+
+                        Governing formula:
+
+                        ${'$'}${'$'}c^2 = a^2 + b^2${'$'}${'$'}
+
+                        ${'$'}${'$'}c = \sqrt{a^2 + b^2}${'$'}${'$'}
+
+                        **Worked Example:**
+                        Suppose a right-angled triangle has legs ${'$'}a = 3\text{ cm}${'$'} and ${'$'}b = 4\text{ cm}${'$'}:
+
+                        ${'$'}${'$'}c = \sqrt{3^2 + 4^2} = \sqrt{9 + 16} = \sqrt{25} = 5\text{ cm}${'$'}${'$'}
+
+                        **Answer: 5 cm**
+
+                        **Key Takeaway**
+                        Common WAEC Pythagorean triples: (3, 4, 5), (5, 12, 13), and (8, 15, 17) appear repeatedly in exam questions!
                     """.trimIndent(),
-                    diagramType = "chemistry_atom",
-                    diagramTitle = "Bohr Atomic Model"
+                    diagramType = "none",
+                    diagramTitle = ""
                 )
             }
             else -> {
                 ExplanationResult(
                     explanationText = """
-                        Overview and Core Concept
-                        Study Buddy Academic Lesson: Analysis of $topic in $subject.
-                        
-                        Step-by-Step Breakdown
-                        1. Theoretical Foundation: Define the core terms, governing principles, and standard assumptions.
-                        2. Structural Derivation: Break down the concept into underlying relationships and components.
-                        3. Analytical Application: Apply systematic methodology to solve representative problems.
-                        4. Validation: Verify boundary conditions, dimensional units, and physical reasonableness.
-                        
-                        Key Formulas and Principles
-                        • Functional Form: f(x) = ax^2 + bx + c
-                        • Conservation Principle: Initial State = Final State
-                        
-                        Worked Example
-                        Solving linear relationship step-by-step:
-                        2x + 6 = 14
-                        2x = 8
-                        x = 4.
-                        
-                        Key Takeaway
-                        Master the core definitions first, then reinforce understanding through step-by-step problem sets.
+                        Absolutely. Let’s break down **$topic** from the fundamentals, in a clear way that helps with **WAEC/JAMB $subject**.
+
+                        **What is $topic?**
+                        **A core principle in $subject governing fundamental concepts, laws, and practical applications.**
+
+                        For example:
+                        • Core Definition → **Principles & Terminology**
+                        • Governing Laws → **Standard Equations & Formulas**
+                        • Practical Application → **WAEC/JAMB Problem Solving**
+
+                        **Governing Equation:**
+
+                        ${'$'}${'$'}Rate = \frac{Change\ in\ Quantity}{Time}${'$'}${'$'}
+
+                        Think of this topic as learning the building blocks. Once you understand the foundation, exam questions become straightforward!
                     """.trimIndent(),
-                    diagramType = "cartesian_graph",
-                    diagramTitle = "Concept Mathematical Graph"
+                    diagramType = "none",
+                    diagramTitle = ""
                 )
             }
         }
@@ -1435,7 +1509,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun openWaecJambPrep() {
         voiceManager.stopSpeaking()
-        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.GET_STARTED)
+        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.SELECTION_SETUP)
         navigateTo(AppScreen.EXAM_PREP)
     }
 
