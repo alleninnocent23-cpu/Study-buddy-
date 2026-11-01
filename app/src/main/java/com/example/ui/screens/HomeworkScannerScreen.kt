@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.components.AssistantRichMessageContent
 import com.example.ui.components.CameraCaptureDialog
 import com.example.ui.components.EducationalDiagramView
 import com.example.ui.components.ExplanationControlsBar
@@ -385,11 +386,8 @@ fun HomeworkScannerScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            Text(
-                                text = result.explanationText,
-                                color = PureWhite,
-                                fontSize = 13.sp,
-                                lineHeight = 20.sp
+                            AssistantRichMessageContent(
+                                text = result.explanationText
                             )
 
                             // Diagram if present

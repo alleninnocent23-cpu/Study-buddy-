@@ -1261,140 +1261,84 @@ fun ChatGptMessageItem(
     }
 }
 
-fun cleanMathSymbols(str: String): String {
-    return str
-        .replace("\\times", "×")
-        .replace("\\cdot", "·")
-        .replace("\\div", "÷")
-        .replace("\\pm", "±")
-        .replace("\\approx", "≈")
-        .replace("\\neq", "≠")
-        .replace("\\le", "≤")
-        .replace("\\ge", "≥")
-        .replace("\\sqrt", "√")
-        .replace("\\to", "→")
-        .replace("\\rightarrow", "→")
-        .replace("\\text", "")
-        .replace("\\mathrm", "")
-        .replace("\\mathbf", "")
-        .replace("{", "")
-        .replace("}", "")
-        .replace("\\ ", " ")
-        .replace("\\", "")
-        .trim()
+/**
+ * Processes inline LaTeX expressions ($...$ and \(...\)) into mathematically clean Unicode typography.
+ */
+fun formatInlineMath(text: String): String {
+    // 1. Matches \( ... \) LaTeX inline math
+    var result = Regex("""\\\(([\s\S]*?)\\\)""").replace(text) { match ->
+        MathRenderer.formatLatexToReadableMath(match.groupValues[1])
+    }
+    // 2. Matches $...$ inline math (ignoring solitary currency expressions)
+    result = Regex("""(?<!\\)\$([^\$\n]+?)\$(?!\d)""").replace(result) { match ->
+        val inner = match.groupValues[1].trim()
+        MathRenderer.formatLatexToReadableMath(inner)
+    }
+    // 3. Fallback: transform unbracketed LaTeX scientific symbols into clean Unicode
+    val standaloneLatexSyms = listOf(
+        "\\times" to "×",
+        "\\cdot" to "·",
+        "\\div" to "÷",
+        "\\pm" to "±",
+        "\\mp" to "∓",
+        "\\approx" to "≈",
+        "\\neq" to "≠",
+        "\\ne" to "≠",
+        "\\le" to "≤",
+        "\\leq" to "≤",
+        "\\ge" to "≥",
+        "\\geq" to "≥",
+        "\\degree" to "°",
+        "\\to" to "→",
+        "\\rightarrow" to "→",
+        "\\leftarrow" to "←",
+        "\\pi" to "π",
+        "\\theta" to "θ",
+        "\\alpha" to "α",
+        "\\beta" to "β",
+        "\\gamma" to "γ",
+        "\\lambda" to "λ",
+        "\\mu" to "μ",
+        "\\Delta" to "Δ",
+        "\\Omega" to "Ω",
+        "\\infty" to "∞"
+    )
+    for ((tex, sym) in standaloneLatexSyms) {
+        result = result.replace(tex, sym)
+    }
+    return result
 }
 
-data class MathFraction(
-    val prefix: String,
-    val numerator: String,
-    val denominator: String,
-    val suffix: String
+data class ParsedMarkdownTable(
+    val headers: List<String>,
+    val rows: List<List<String>>
 )
 
-fun parseMathFraction(raw: String): MathFraction? {
-    val fracRegex = Regex("""^(.*?)\\frac\{([^}]+)\}\{([^}]+)\}(.*)$""")
-    val match = fracRegex.find(raw)
-    if (match != null) {
-        return MathFraction(
-            prefix = match.groupValues[1].replace(Regex("""^\$\$|\$\$$"""), "").trim(),
-            numerator = match.groupValues[2].trim(),
-            denominator = match.groupValues[3].trim(),
-            suffix = match.groupValues[4].replace(Regex("""^\$\$|\$\$$"""), "").trim()
-        )
+fun parseMarkdownTable(lines: List<String>): ParsedMarkdownTable? {
+    if (lines.size < 2) return null
+    val splitCells = { rawLine: String ->
+        rawLine.trim()
+            .removePrefix("|").removeSuffix("|")
+            .split("|")
+            .map { it.trim() }
     }
-    return null
-}
+    val rawHeader = splitCells(lines[0])
+    if (rawHeader.isEmpty()) return null
 
-@Composable
-fun MathEquationView(
-    rawEquation: String,
-    modifier: Modifier = Modifier
-) {
-    val clean = rawEquation.trim()
-        .removePrefix("$$").removeSuffix("$$")
-        .removePrefix("\\[").removeSuffix("\\]")
-        .trim()
-
-    val fraction = remember(clean) { parseMathFraction(clean) }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (fraction != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (fraction.prefix.isNotBlank()) {
-                    Text(
-                        text = cleanMathSymbols(fraction.prefix) + " ",
-                        style = TextStyle(
-                            fontFamily = FontFamily.Serif,
-                            fontStyle = FontStyle.Italic,
-                            fontSize = 18.sp,
-                            color = PureWhite
-                        )
-                    )
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                ) {
-                    Text(
-                        text = cleanMathSymbols(fraction.numerator),
-                        style = TextStyle(
-                            fontFamily = FontFamily.Serif,
-                            fontStyle = FontStyle.Italic,
-                            fontSize = 16.sp,
-                            color = PureWhite
-                        ),
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.widthIn(min = 36.dp),
-                        thickness = 1.5.dp,
-                        color = PureWhite
-                    )
-                    Text(
-                        text = cleanMathSymbols(fraction.denominator),
-                        style = TextStyle(
-                            fontFamily = FontFamily.Serif,
-                            fontStyle = FontStyle.Italic,
-                            fontSize = 16.sp,
-                            color = PureWhite
-                        ),
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-
-                if (fraction.suffix.isNotBlank()) {
-                    Text(
-                        text = " " + cleanMathSymbols(fraction.suffix),
-                        style = TextStyle(
-                            fontFamily = FontFamily.Serif,
-                            fontStyle = FontStyle.Italic,
-                            fontSize = 18.sp,
-                            color = PureWhite
-                        )
-                    )
-                }
-            }
-        } else {
-            Text(
-                text = cleanMathSymbols(clean),
-                style = TextStyle(
-                    fontFamily = FontFamily.Serif,
-                    fontStyle = FontStyle.Italic,
-                    fontSize = 18.sp,
-                    color = PureWhite
-                )
-            )
+    val dataRows = mutableListOf<List<String>>()
+    for (idx in 1 until lines.size) {
+        val line = lines[idx].trim()
+        // Skip separator rows like |---|:---:|---|
+        if (line.replace("|", "").replace("-", "").replace(":", "").replace(" ", "").isEmpty()) {
+            continue
+        }
+        val cells = splitCells(line)
+        if (cells.isNotEmpty()) {
+            dataRows.add(cells)
         }
     }
+    if (dataRows.isEmpty()) return null
+    return ParsedMarkdownTable(headers = rawHeader, rows = dataRows)
 }
 
 @Composable
@@ -1517,14 +1461,63 @@ private fun RenderNonCodeBlocks(rawText: String) {
             continue
         }
 
-        // Check for display equation $$...$$ or \frac{...}{...}
-        if (line.startsWith("$$") || line.contains("\\frac{")) {
+        // 1. Markdown Table Detection (e.g. for number-base conversions, comparisons, truth tables)
+        if (line.startsWith("|") && line.endsWith("|") && line.contains("|")) {
+            val tableLines = mutableListOf<String>()
+            while (i < lines.size && lines[i].trim().startsWith("|") && lines[i].trim().contains("|")) {
+                tableLines.add(lines[i].trim())
+                i++
+            }
+            val parsed = parseMarkdownTable(tableLines)
+            if (parsed != null && parsed.headers.isNotEmpty() && parsed.rows.isNotEmpty()) {
+                MathTableView(headers = parsed.headers, rows = parsed.rows)
+            } else {
+                tableLines.forEach { tLine ->
+                    Text(text = buildFormattedText(tLine), color = PureWhite, fontSize = 14.sp)
+                }
+            }
+            continue
+        }
+
+        // 2. Block Mathematical Expressions: $$, \[, \begin{equation}, \begin{align}
+        if (line.startsWith("$$") || line.startsWith("\\[") || line.startsWith("\\begin{equation}") || line.startsWith("\\begin{align}")) {
+            val isSingleLine = (line.startsWith("$$") && line.endsWith("$$") && line.length > 2) ||
+                               (line.startsWith("\\[") && line.endsWith("\\]") && line.length > 2)
+            if (isSingleLine) {
+                MathEquationView(rawEquation = line)
+                i++
+                continue
+            } else {
+                val blockLines = mutableListOf<String>()
+                val closingToken = when {
+                    line.startsWith("$$") -> "$$"
+                    line.startsWith("\\[") -> "\\]"
+                    line.startsWith("\\begin{equation}") -> "\\end{equation}"
+                    else -> "\\end{align}"
+                }
+                blockLines.add(line)
+                i++
+                while (i < lines.size) {
+                    val curr = lines[i].trim()
+                    blockLines.add(curr)
+                    i++
+                    if (curr.endsWith(closingToken) || curr == closingToken) {
+                        break
+                    }
+                }
+                MathEquationView(rawEquation = blockLines.joinToString("\n"))
+                continue
+            }
+        }
+
+        // 3. Standalone mathematical formula lines (e.g. Speed = \frac{Distance}{Time} or \frac{100}{20} = 5)
+        if (line.contains("\\frac{") || (line.contains("\\sqrt{") && line.contains("=")) || line.contains("\\int_{")) {
             MathEquationView(rawEquation = line)
             i++
             continue
         }
 
-        // Bullet point: • or -
+        // 4. Bullet points: • or - or *
         if (line.startsWith("•") || line.startsWith("- ") || line.startsWith("* ")) {
             val content = line.removePrefix("•").removePrefix("-").removePrefix("*").trim()
             Row(
@@ -1549,10 +1542,10 @@ private fun RenderNonCodeBlocks(rawText: String) {
             continue
         }
 
-        // Headings, numbered list items, answers, regular paragraphs
+        // 5. Headings, numbered list items, answers, regular paragraphs
         val isHeading = line.startsWith("**") && line.endsWith("**") && line.length > 4 && !line.contains("→")
         val isNumberedList = Regex("""^\d+\.\s+""").containsMatchIn(line)
-        val isAnswer = line.startsWith("Answer:", ignoreCase = true) || line.startsWith("**Answer:", ignoreCase = true)
+        val isAnswer = line.startsWith("Answer:", ignoreCase = true) || line.startsWith("**Answer:", ignoreCase = true) || line.startsWith("Final Answer:", ignoreCase = true)
 
         if (isHeading) {
             Text(
@@ -1593,8 +1586,9 @@ private fun RenderNonCodeBlocks(rawText: String) {
 }
 
 fun buildFormattedText(text: String): AnnotatedString {
+    val mathProcessed = formatInlineMath(text)
     return buildAnnotatedString {
-        val parts = text.split("**")
+        val parts = mathProcessed.split("**")
         parts.forEachIndexed { index, part ->
             if (index % 2 == 1) {
                 withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = PureWhite)) {

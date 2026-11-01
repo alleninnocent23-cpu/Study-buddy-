@@ -202,4 +202,69 @@ class ExampleUnitTest {
         assertTrue(voiceMessage.isVoiceNote)
         assertEquals(5, voiceMessage.voiceDurationSeconds)
     }
+
+    @Test
+    fun testMathRendererFractionsAndRoots() {
+        val frac = com.example.ui.components.MathRenderer.formatLatexToReadableMath("\\frac{100}{20}")
+        assertEquals("100/20", frac)
+
+        val longFrac = com.example.ui.components.MathRenderer.formatLatexToReadableMath("\\frac{Distance}{Time}")
+        assertEquals("(Distance) / (Time)", longFrac)
+
+        val sqrt = com.example.ui.components.MathRenderer.formatLatexToReadableMath("\\sqrt{16}")
+        assertEquals("√(16)", sqrt)
+
+        val cubeRoot = com.example.ui.components.MathRenderer.formatLatexToReadableMath("\\sqrt[3]{8}")
+        assertEquals("³√(8)", cubeRoot)
+    }
+
+    @Test
+    fun testMathRendererPhysicsAndCalculus() {
+        val speedEquation = com.example.ui.components.MathRenderer.formatLatexToReadableMath(
+            "\\text{Speed} = \\frac{\\text{Distance}}{\\text{Time}} = 5\\text{ m/s}"
+        )
+        assertEquals("Speed = (Distance) / (Time) = 5 m/s", speedEquation)
+
+        val quadratic = com.example.ui.components.MathRenderer.formatLatexToReadableMath(
+            "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}"
+        )
+        assertTrue(quadratic.contains("±"))
+        assertTrue(quadratic.contains("√"))
+        assertTrue(quadratic.contains("b²"))
+
+        val kineticEnergy = com.example.ui.components.MathRenderer.formatLatexToReadableMath(
+            "E_k = \\frac{1}{2}mv^2"
+        )
+        assertTrue(kineticEnergy.contains("1/2"))
+        assertTrue(kineticEnergy.contains("v²"))
+        assertTrue(kineticEnergy.contains("Eₖ"))
+
+        val integral = com.example.ui.components.MathRenderer.formatLatexToReadableMath(
+            "\\int_{0}^{\\infty} e^{-x} dx = 1"
+        )
+        assertTrue(integral.contains("∫"))
+        assertTrue(integral.contains("∞"))
+    }
+
+    @Test
+    fun testInlineMathAndMarkdownTableParsing() {
+        val inlineText = "Your speed is \$v = \\frac{d}{t}\$ which gives 5 m/s."
+        val formattedInline = com.example.ui.components.formatInlineMath(inlineText)
+        assertTrue(formattedInline.contains("v = d/t"))
+        assertTrue(!formattedInline.contains("\$"))
+        assertTrue(!formattedInline.contains("\\frac"))
+
+        val tableLines = listOf(
+            "| Base 10 | Base 2 |",
+            "|---|---|",
+            "| 13 | 1101 |",
+            "| 7 | 111 |"
+        )
+        val parsed = com.example.ui.components.parseMarkdownTable(tableLines)
+        assertTrue(parsed != null)
+        assertEquals(listOf("Base 10", "Base 2"), parsed?.headers)
+        assertEquals(2, parsed?.rows?.size)
+        assertEquals(listOf("13", "1101"), parsed?.rows?.get(0))
+        assertEquals(listOf("7", "111"), parsed?.rows?.get(1))
+    }
 }

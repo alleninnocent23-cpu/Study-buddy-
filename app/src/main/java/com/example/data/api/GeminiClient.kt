@@ -381,9 +381,9 @@ object GeminiClient {
             Examine this photo of a student's homework, worksheet, or problem.
             ${if (subject.isNotBlank()) "Student Field of Study: $subject\n$fieldDirective" else ""}
             Provide a clean, rigorous, professional academic teaching explanation.
-            CRITICAL FORMATTING INSTRUCTIONS:
-            - NEVER use LaTeX math delimiters (STRICTLY FORBIDDEN: do not write $$, $, \(, \), \[, \], or ?$$()).
-            - Write equations in clean plain text standard math (e.g. write "x = (-b ± √(b² - 4ac)) / (2a)").
+            MATHEMATICAL & SCIENTIFIC FORMATTING:
+            - When equations and calculations improve clarity, format clean display equations with ${'$'}${'$'}...${'$'}${'$'} (e.g. ${'$'}${'$'}v = \frac{d}{t}${'$'}${'$'} or ${'$'}${'$'}x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}${'$'}${'$'}).
+            - For inline formulas or variables, use ${'$'}...${'$'} (e.g. ${'$'}F = ma${'$'}).
             - Do NOT use emojis, conversational slang, or decorative symbols.
             1. Transcribe the questions, mathematical equations, or problems shown clearly.
             2. Provide clear, step-by-step solutions for each problem with formulas, worked steps, and final answers highlighted.

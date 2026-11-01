@@ -90,6 +90,7 @@ import com.example.data.model.ExamType
 import com.example.data.model.WaecJambQuestion
 import com.example.data.model.WaecJambState
 import com.example.data.repository.WaecJambQuestionBank
+import com.example.ui.components.AssistantRichMessageContent
 import com.example.ui.components.GlassCard
 import com.example.ui.components.LoopingVideoPlayer
 import com.example.ui.theme.BorderLight
@@ -1794,11 +1795,8 @@ private fun ActiveExamView(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Text(
-                            text = question.explanation,
-                            color = PureWhite,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp
+                        AssistantRichMessageContent(
+                            text = question.explanation
                         )
 
                         // Why others are wrong breakdown
