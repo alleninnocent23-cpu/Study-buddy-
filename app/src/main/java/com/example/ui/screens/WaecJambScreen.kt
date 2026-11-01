@@ -163,7 +163,12 @@ fun WaecJambScreen(
                     .fillMaxWidth()
             ) {
                 when (state.stage) {
-                    ExamScreenStage.GET_STARTED,
+                    ExamScreenStage.GET_STARTED -> {
+                        ExamGetStartedView(
+                            onGetStarted = onProceedFromGetStarted,
+                            onExit = onExitExamPrep
+                        )
+                    }
                     ExamScreenStage.SELECTION_SETUP -> {
                         when (activeSubView) {
                             WaecHubSubView.WAEC_HUB -> {
@@ -177,7 +182,8 @@ fun WaecJambScreen(
                                     onToggleSubject = onToggleSubject,
                                     onSelectYearRange = onSelectYearRange,
                                     onSelectMode = onSelectMode,
-                                    onStartExam = onStartExam
+                                    onStartExam = onStartExam,
+                                    onBackToGetStarted = onBackToGetStarted
                                 )
                             }
                             WaecHubSubView.JAMB_HUB -> {
@@ -192,7 +198,8 @@ fun WaecJambScreen(
                                     onToggleSubject = onToggleSubject,
                                     onSelectYearRange = onSelectYearRange,
                                     onSelectMode = onSelectMode,
-                                    onStartExam = onStartExam
+                                    onStartExam = onStartExam,
+                                    onBackToGetStarted = onBackToGetStarted
                                 )
                             }
                             WaecHubSubView.SUBJECTS -> {
@@ -246,18 +253,26 @@ fun WaecJambScreen(
             // 5-tab Bottom Navigation bar matching reference image in pure Black & White
             if (state.stage == ExamScreenStage.GET_STARTED || state.stage == ExamScreenStage.SELECTION_SETUP) {
                 WaecJambUnifiedBottomNav(
-                    activeSubView = activeSubView,
+                    activeSubView = if (state.stage == ExamScreenStage.GET_STARTED) null else activeSubView,
                     onNavigateToAi = onExitExamPrep,
-                    onNavigateToStudy = { activeSubView = WaecHubSubView.SUBJECTS },
+                    onNavigateToStudy = {
+                        onProceedFromGetStarted()
+                        activeSubView = WaecHubSubView.SUBJECTS
+                    },
                     onNavigateToWaec = {
+                        onProceedFromGetStarted()
                         onSelectExam(ExamType.WAEC)
                         activeSubView = WaecHubSubView.WAEC_HUB
                     },
                     onNavigateToJamb = {
+                        onProceedFromGetStarted()
                         onSelectExam(ExamType.JAMB)
                         activeSubView = WaecHubSubView.JAMB_HUB
                     },
-                    onNavigateToStudyNote = { activeSubView = WaecHubSubView.FORMULAS }
+                    onNavigateToStudyNote = {
+                        onProceedFromGetStarted()
+                        activeSubView = WaecHubSubView.FORMULAS
+                    }
                 )
             }
         }
@@ -335,7 +350,8 @@ private fun ExamGetStartedView(
             // Exam Mode Badge
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF14241B)
+                color = DarkSurface,
+                border = BorderStroke(1.dp, BorderSubtle)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -344,12 +360,12 @@ private fun ExamGetStartedView(
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .background(Color(0xFF22C55E), CircleShape)
+                            .background(PureWhite, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "1997 - 2026 EXAM DATABASE ACTIVE",
-                        color = Color(0xFF4ADE80),
+                        color = PureWhite,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp
@@ -441,7 +457,7 @@ private fun ExamFeatureBullet(text: String) {
         Icon(
             imageVector = Icons.Default.Check,
             contentDescription = null,
-            tint = Color(0xFF4ADE80),
+            tint = PureWhite,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(10.dp))

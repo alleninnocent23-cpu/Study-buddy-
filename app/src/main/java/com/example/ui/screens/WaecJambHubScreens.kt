@@ -115,6 +115,7 @@ fun WaecHubView(
     onSelectYearRange: (start: Int, end: Int) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
     onStartExam: () -> Unit,
+    onBackToGetStarted: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -165,19 +166,37 @@ fun WaecHubView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "WAEC",
-                    color = PureWhite,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp
-                )
-                Text(
-                    text = "Past questions, solutions & more",
-                    color = TextMutedGray,
-                    fontSize = 12.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onBackToGetStarted != null) {
+                    IconButton(
+                        onClick = onBackToGetStarted,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("waec_hub_back_to_get_started")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Get Started",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Column {
+                    Text(
+                        text = "WAEC",
+                        color = PureWhite,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp
+                    )
+                    Text(
+                        text = "Past questions, solutions & more",
+                        color = TextMutedGray,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             Box {
@@ -195,6 +214,15 @@ fun WaecHubView(
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier.background(DarkSurface)
                 ) {
+                    if (onBackToGetStarted != null) {
+                        DropdownMenuItem(
+                            text = { Text("Overview & Get Started", color = PureWhite, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                onBackToGetStarted.invoke()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("WAEC Exam Tips", color = PureWhite, fontSize = 13.sp) },
                         onClick = {
@@ -578,6 +606,7 @@ fun JambHubView(
     onSelectYearRange: (start: Int, end: Int) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
     onStartExam: () -> Unit,
+    onBackToGetStarted: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -630,19 +659,37 @@ fun JambHubView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "JAMB",
-                    color = PureWhite,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp
-                )
-                Text(
-                    text = "Practice. Prepare. Score Higher.",
-                    color = TextMutedGray,
-                    fontSize = 12.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onBackToGetStarted != null) {
+                    IconButton(
+                        onClick = onBackToGetStarted,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("jamb_hub_back_to_get_started")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Get Started",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Column {
+                    Text(
+                        text = "JAMB",
+                        color = PureWhite,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.5).sp
+                    )
+                    Text(
+                        text = "Practice. Prepare. Score Higher.",
+                        color = TextMutedGray,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             Box {
@@ -660,6 +707,15 @@ fun JambHubView(
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier.background(DarkSurface)
                 ) {
+                    if (onBackToGetStarted != null) {
+                        DropdownMenuItem(
+                            text = { Text("Overview & Get Started", color = PureWhite, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                onBackToGetStarted.invoke()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("JAMB Official Syllabus", color = PureWhite, fontSize = 13.sp) },
                         onClick = {
@@ -1470,7 +1526,7 @@ private fun ActionOptionCard(
  */
 @Composable
 fun WaecJambUnifiedBottomNav(
-    activeSubView: WaecHubSubView,
+    activeSubView: WaecHubSubView? = null,
     onNavigateToAi: () -> Unit,
     onNavigateToStudy: () -> Unit,
     onNavigateToWaec: () -> Unit,

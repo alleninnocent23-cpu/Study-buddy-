@@ -1003,6 +1003,7 @@ fun ChatGptMessageItem(
     onSpeak: () -> Unit,
     onStopSpeak: () -> Unit,
     onLike: (Boolean) -> Unit,
+    onQuickReply: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1089,6 +1090,66 @@ fun ChatGptMessageItem(
             AssistantRichMessageContent(
                 text = message.text
             )
+
+            // Quick Study Track Selector if tutor asks at the end: WAEC, JAMB, or just learning
+            if (message.text.contains("Are you studying for WAEC, JAMB, or just learning", ignoreCase = true)) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = TrueBlack,
+                        border = BorderStroke(1.dp, PureWhite),
+                        modifier = Modifier
+                            .clickable { onQuickReply?.invoke("I'm studying for WAEC!") }
+                            .testTag("chat_track_waec_chip")
+                    ) {
+                        Text(
+                            text = "🎓 WAEC",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = TrueBlack,
+                        border = BorderStroke(1.dp, PureWhite),
+                        modifier = Modifier
+                            .clickable { onQuickReply?.invoke("I'm studying for JAMB!") }
+                            .testTag("chat_track_jamb_chip")
+                    ) {
+                        Text(
+                            text = "⚡ JAMB",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = TrueBlack,
+                        border = BorderStroke(1.dp, Color(0xFF666666)),
+                        modifier = Modifier
+                            .clickable { onQuickReply?.invoke("Just learning for now!") }
+                            .testTag("chat_track_learning_chip")
+                    ) {
+                        Text(
+                            text = "💡 Just learning",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
 
             // Action Icons Row matching Screenshot 3:
             // [📋 Copy] [👍 Like] [👎 Dislike] [🔊 Volume / Speak] [🔗 Share] [⋮ More]

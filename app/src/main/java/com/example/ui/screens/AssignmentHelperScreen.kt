@@ -413,7 +413,8 @@ fun AssignmentHelperScreen(
                                 onTogglePlayVoiceNote = { onTogglePlayVoiceNote(msg.id, msg.text) },
                                 onSpeak = { onPlayAnswer(msg.text) },
                                 onStopSpeak = onStopAnswerVoice,
-                                onLike = { liked -> onLikeMessage(msg.id, liked) }
+                                onLike = { liked -> onLikeMessage(msg.id, liked) },
+                                onQuickReply = { onSendChatMessage(it) }
                             )
                         }
 

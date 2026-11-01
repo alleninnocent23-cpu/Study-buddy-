@@ -493,10 +493,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch {
             val grade = _currentUser.value?.grade ?: "High School"
+            val historyList = state.messages.takeLast(6).map {
+                (if (it.sender == MessageSender.USER) "user" else "model") to it.text
+            }
             val result = if (image != null) {
                 GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
             } else {
-                GeminiClient.explainTopic(promptText, state.selectedSubject, grade)
+                GeminiClient.explainTopic(promptText, state.selectedSubject, grade, historyList)
             }
 
             result.onSuccess { explanation ->
@@ -915,55 +918,47 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.shutdown()
     }
 
-    // Curated educational fallbacks matching the exact friendly tutor and equation layout from user screenshots
+    // Curated educational fallbacks matching the StudyBuddy natural tutor philosophy
     private fun getCuratedExplanation(topic: String, subject: String): ExplanationResult {
         val lower = topic.lowercase()
         return when {
             lower.contains("physics") || lower.contains("motion") || lower.contains("speed") || lower.contains("gravity") || lower.contains("force") -> {
                 ExplanationResult(
                     explanationText = """
-                        Absolutely. Let’s start **Physics** from the basics, in a way that helps with **WAEC/JAMB**.
-
-                        **What is Physics?**
                         **Physics is the study of matter, energy, forces, motion, and how things interact with each other.**
 
                         For example:
-
                         • Why does a ball fall? → **Gravity**
                         • Why does a car speed up? → **Force**
                         • How does electricity flow? → **Electricity**
                         • Why can we see objects? → **Light**
                         • How does sound reach your ears? → **Waves**
 
-                        **The main areas of Physics**
+                        **Key areas of Physics**
+                        1. **Measurements** — length, mass, time, temperature
+                        2. **Motion** — speed, velocity, acceleration
+                        3. **Forces** — pushing, pulling, friction, gravity
+                        4. **Energy, Work & Power** — how energy transfers
+                        5. **Waves & Optics** — sound, light, reflection, refraction
+                        6. **Electricity & Magnetism** — circuits, currents, fields
+                        7. **Atomic & Modern Physics** — atoms, photons, radioactivity
 
-                        1. **Measurements** — length, mass, time, temperature, etc.
-                        2. **Motion** — speed, velocity, acceleration.
-                        3. **Forces** — pushing, pulling, friction, gravity.
-                        4. **Energy** — kinetic, potential, heat, electrical energy.
-                        5. **Work and Power** — how forces transfer energy.
-                        6. **Waves** — sound, light, water waves.
-                        7. **Electricity** — current, voltage, resistance and circuits.
-                        8. **Magnetism** — magnets and electromagnetic effects.
-                        9. **Heat** — temperature and transfer of thermal energy.
-                        10. **Modern Physics** — atoms, radioactivity, photons and nuclear physics.
-
-                        **First important idea: Motion**
+                        **Worked Motion Example:**
                         Suppose you travel **100 metres** in **20 seconds**.
 
-                        Your average speed is:
+                        Given:
+                        Distance (${'$'}d) = 100 m
+                        Time (${'$'}t) = 20 s
 
+                        Formula:
                         ${'$'}${'$'}Speed = \frac{Distance}{Time}${'$'}${'$'}
 
-                        So:
-
-                        ${'$'}${'$'}Speed = \frac{100}{20} = 5\ m/s${'$'}${'$'}
+                        Working:
+                        ${'$'}${'$'}Speed = \frac{100}{20} = 5\text{ m/s}${'$'}${'$'}
 
                         **Answer: 5 m/s**
 
-                        Think of physics as learning the rules behind things you see every day. Once you understand the idea, the formulas become much easier.
-
-                        If you want, I can teach you **WAEC/JAMB Physics** from Topic 1 all the way to the hardest topics, with examples and questions after each topic.
+                        **Are you studying for WAEC, JAMB, or just learning?** Let me know so I can tailor the next step and practice questions for you!
                     """.trimIndent(),
                     diagramType = "none",
                     diagramTitle = ""
@@ -972,17 +967,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             lower.contains("code") || lower.contains("python") || lower.contains("program") || lower.contains("computer") -> {
                 ExplanationResult(
                     explanationText = """
-                        Absolutely. Let’s write clean, modular **Computer Science code** for **WAEC/JAMB**.
+                        **In programming, clean functions isolate logic, take explicit inputs, and return predictable outputs.**
 
-                        **Core Concept**
-                        **Writing functions with clear inputs, structured algorithms, and predictable time complexity.**
-
-                        For example:
-                        • Calculate physics formula → **Pure Function**
-                        • Process data values → **Sequential Logic**
-                        • Output formatted result → **String Interpolation**
-
-                        Here is the Python implementation:
+                        Here is a modular Python implementation for computing average speed:
 
                         ```python
                         def calculate_average_speed(distance_meters: float, time_seconds: float) -> float:
@@ -990,13 +977,15 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                                 raise ValueError("Time must be positive")
                             return distance_meters / time_seconds
 
-                        # Example run for 100 metres in 20 seconds:
+                        # Example run: 100 metres in 20 seconds
                         speed = calculate_average_speed(100.0, 20.0)
                         print(f"Average Speed: {speed} m/s")  # Output: 5.0 m/s
                         ```
 
-                        **Key Takeaway**
-                        Functions isolate mathematical logic, ensuring the solution is testable, reusable, and bug-free for exams.
+                        **Key Idea:**
+                        Checking edge cases (like `time <= 0`) prevents zero-division errors and keeps algorithms robust.
+
+                        **Are you studying for WAEC, JAMB, or just learning?** Let me know so I can tailor the next step and practice questions for you!
                     """.trimIndent(),
                     diagramType = "none",
                     diagramTitle = ""
@@ -1005,30 +994,23 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             lower.contains("pythagor") || lower.contains("triangle") || lower.contains("math") -> {
                 ExplanationResult(
                     explanationText = """
-                        Absolutely. Let’s master the **Pythagorean Theorem** from the ground up for **WAEC/JAMB Mathematics**.
+                        **The Pythagorean Theorem states that in any right triangle with perpendicular legs ${'$'}a and ${'$'}b and hypotenuse ${'$'}c:**
 
-                        **What is the Pythagorean Theorem?**
-                        **In any right-angled triangle, the area of the square on the hypotenuse is equal to the sum of the areas of the squares on the other two legs.**
-
-                        For example:
-                        • Longest side opposite 90° → **Hypotenuse (c)**
-                        • Other perpendicular sides → **Legs (a and b)**
-
-                        Governing formula:
-
-                        ${'$'}${'$'}c^2 = a^2 + b^2${'$'}${'$'}
+                        ${'$'}${'$'}a^2 + b^2 = c^2${'$'}${'$'}
 
                         ${'$'}${'$'}c = \sqrt{a^2 + b^2}${'$'}${'$'}
 
                         **Worked Example:**
-                        Suppose a right-angled triangle has legs ${'$'}a = 3\text{ cm}${'$'} and ${'$'}b = 4\text{ cm}${'$'}:
+                        Given legs ${'$'}a = 3\text{ cm} and ${'$'}b = 4\text{ cm}:
 
                         ${'$'}${'$'}c = \sqrt{3^2 + 4^2} = \sqrt{9 + 16} = \sqrt{25} = 5\text{ cm}${'$'}${'$'}
 
                         **Answer: 5 cm**
 
-                        **Key Takeaway**
-                        Common WAEC Pythagorean triples: (3, 4, 5), (5, 12, 13), and (8, 15, 17) appear repeatedly in exam questions!
+                        **Key Tip:**
+                        Memorizing common triples like (3, 4, 5), (5, 12, 13), and (8, 15, 17) will save you valuable time on timed exams!
+
+                        **Are you studying for WAEC, JAMB, or just learning?** Let me know so I can tailor the next step and practice questions for you!
                     """.trimIndent(),
                     diagramType = "none",
                     diagramTitle = ""
@@ -1037,21 +1019,20 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             else -> {
                 ExplanationResult(
                     explanationText = """
-                        Absolutely. Let’s break down **$topic** from the fundamentals, in a clear way that helps with **WAEC/JAMB $subject**.
+                        **$topic** is a core principle in **$subject**.
 
-                        **What is $topic?**
-                        **A core principle in $subject governing fundamental concepts, laws, and practical applications.**
+                        **Core Concept:**
+                        Understanding how fundamental rules, governing formulas, and practical problem-solving connect together.
 
                         For example:
                         • Core Definition → **Principles & Terminology**
-                        • Governing Laws → **Standard Equations & Formulas**
-                        • Practical Application → **WAEC/JAMB Problem Solving**
+                        • Governing Law → **Standard Equations & Formulas**
+                        • Practical Application → **Real-world Problem Solving**
 
-                        **Governing Equation:**
+                        **Standard Relationship:**
+                        ${'$'}${'$'}Rate = \frac{\Delta \text{Quantity}}{\Delta \text{Time}}${'$'}${'$'}
 
-                        ${'$'}${'$'}Rate = \frac{Change\ in\ Quantity}{Time}${'$'}${'$'}
-
-                        Think of this topic as learning the building blocks. Once you understand the foundation, exam questions become straightforward!
+                        **Are you studying for WAEC, JAMB, or just learning?** Let me know so I can tailor the next step and practice questions for you!
                     """.trimIndent(),
                     diagramType = "none",
                     diagramTitle = ""
@@ -1509,7 +1490,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun openWaecJambPrep() {
         voiceManager.stopSpeaking()
-        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.SELECTION_SETUP)
+        waecJambState.value = waecJambState.value.copy(stage = ExamScreenStage.GET_STARTED)
         navigateTo(AppScreen.EXAM_PREP)
     }
 
