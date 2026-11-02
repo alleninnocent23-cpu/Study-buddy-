@@ -37,6 +37,18 @@ jobs:
           gradle wrapper --gradle-version 9.3.1
           chmod +x gradlew
 
+      - name: Generate Debug Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
       - name: Build StudyBuddy APK
         run: ./gradlew assembleDebug --no-daemon
 
@@ -47,3 +59,4 @@ jobs:
           path: '**/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
           retention-days: 14
+          
