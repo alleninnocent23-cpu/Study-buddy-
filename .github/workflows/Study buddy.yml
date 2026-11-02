@@ -1,0 +1,52 @@
+
+name: StudyBuddy Kotlin APK Builder
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build StudyBuddy APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Locate Gradle Wrapper
+        run: |
+          if [ ! -f gradlew ]; then
+            echo "Gradle wrapper missing from repository root."
+            exit 1
+          fi
+          chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload StudyBuddy APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudyBuddy-Android-APK
+          path: |
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
