@@ -28,8 +28,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import com.example.ui.components.ExamCalculatorDialog
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Lightbulb
@@ -115,6 +117,7 @@ fun WaecHubView(
     onSelectYearRange: (start: Int, end: Int) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
     onStartExam: () -> Unit,
+    onUpdateQuestionCount: (Int) -> Unit = {},
     onBackToGetStarted: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -122,6 +125,13 @@ fun WaecHubView(
     var showMenu by remember { mutableStateOf(false) }
     var showTipsDialog by remember { mutableStateOf(false) }
     var showExplanationsInfoDialog by remember { mutableStateOf(false) }
+    var showCalculatorDialog by remember { mutableStateOf(false) }
+
+    if (showCalculatorDialog) {
+        ExamCalculatorDialog(
+            onDismiss = { showCalculatorDialog = false }
+        )
+    }
 
     var sliderRange by remember(state.config.yearStart, state.config.yearEnd) {
         mutableStateOf(state.config.yearStart.toFloat()..state.config.yearEnd.toFloat())
@@ -199,21 +209,36 @@ fun WaecHubView(
                 }
             }
 
-            Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showCalculatorDialog = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("waec_hub_calculator_btn")
+                ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More Options",
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Onscreen Exam Calculator",
                         tint = PureWhite,
                         modifier = Modifier.size(20.dp)
                     )
                 }
 
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier.background(DarkSurface)
-                ) {
+                Box {
+                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(DarkSurface)
+                    ) {
                     if (onBackToGetStarted != null) {
                         DropdownMenuItem(
                             text = { Text("Overview & Get Started", color = PureWhite, fontSize = 13.sp) },
@@ -247,6 +272,7 @@ fun WaecHubView(
                 }
             }
         }
+    }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -613,6 +639,13 @@ fun JambHubView(
     var showMenu by remember { mutableStateOf(false) }
     var showSyllabusDialog by remember { mutableStateOf(false) }
     var showStudyGuideDialog by remember { mutableStateOf(false) }
+    var showCalculatorDialog by remember { mutableStateOf(false) }
+
+    if (showCalculatorDialog) {
+        ExamCalculatorDialog(
+            onDismiss = { showCalculatorDialog = false }
+        )
+    }
 
     var sliderRange by remember(state.config.yearStart, state.config.yearEnd) {
         mutableStateOf(state.config.yearStart.toFloat()..state.config.yearEnd.toFloat())
@@ -692,51 +725,67 @@ fun JambHubView(
                 }
             }
 
-            Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showCalculatorDialog = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("jamb_hub_calculator_btn")
+                ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More Options",
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Onscreen Exam Calculator",
                         tint = PureWhite,
                         modifier = Modifier.size(20.dp)
                     )
                 }
 
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier.background(DarkSurface)
-                ) {
-                    if (onBackToGetStarted != null) {
+                Box {
+                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(DarkSurface)
+                    ) {
+                        if (onBackToGetStarted != null) {
+                            DropdownMenuItem(
+                                text = { Text("Overview & Get Started", color = PureWhite, fontSize = 13.sp) },
+                                onClick = {
+                                    showMenu = false
+                                    onBackToGetStarted.invoke()
+                                }
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text("Overview & Get Started", color = PureWhite, fontSize = 13.sp) },
+                            text = { Text("JAMB Official Syllabus", color = PureWhite, fontSize = 13.sp) },
                             onClick = {
                                 showMenu = false
-                                onBackToGetStarted.invoke()
+                                showSyllabusDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("CBT Strategy Guide", color = PureWhite, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                showStudyGuideDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("View All Subjects", color = PureWhite, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                onOpenSubjects()
                             }
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("JAMB Official Syllabus", color = PureWhite, fontSize = 13.sp) },
-                        onClick = {
-                            showMenu = false
-                            showSyllabusDialog = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("CBT Strategy Guide", color = PureWhite, fontSize = 13.sp) },
-                        onClick = {
-                            showMenu = false
-                            showStudyGuideDialog = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("View All Subjects", color = PureWhite, fontSize = 13.sp) },
-                        onClick = {
-                            showMenu = false
-                            onOpenSubjects()
-                        }
-                    )
                 }
             }
         }

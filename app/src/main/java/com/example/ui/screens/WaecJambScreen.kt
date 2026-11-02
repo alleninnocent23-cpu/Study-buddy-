@@ -35,9 +35,11 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import com.example.ui.components.ExamCalculatorDialog
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -142,6 +144,7 @@ fun WaecJambScreen(
 
     var showSubjectSelectorDialog by remember { mutableStateOf(false) }
     var activeDialogTrack by remember { mutableStateOf("All") }
+    var showCalculatorDialog by remember { mutableStateOf(false) }
 
     if (showSubjectSelectorDialog) {
         SubjectSelectionDialog(
@@ -149,6 +152,12 @@ fun WaecJambScreen(
             selectedSubjects = state.config.selectedSubjects,
             onDismiss = { showSubjectSelectorDialog = false },
             onToggleSubject = onToggleSubject
+        )
+    }
+
+    if (showCalculatorDialog) {
+        ExamCalculatorDialog(
+            onDismiss = { showCalculatorDialog = false }
         )
     }
 
@@ -238,7 +247,8 @@ fun WaecJambScreen(
                             onSubmit = onSubmitExam,
                             onExit = onResetToSetup,
                             onPlayAudio = onPlayAudio,
-                            onStopAudio = onStopAudio
+                            onStopAudio = onStopAudio,
+                            onOpenCalculator = { showCalculatorDialog = true }
                         )
                     }
                     ExamScreenStage.EXAM_RESULTS -> {
@@ -493,7 +503,8 @@ private fun ExamSelectionSetupView(
     onSelectDifficulty: (String) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
     onSelectQuestionCount: (Int) -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    onOpenCalculator: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val availableTopics = WaecJambQuestionBank.allTopicsBySubject[state.config.subject]
@@ -1086,14 +1097,14 @@ private fun ExamSelectionSetupView(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // --- QUESTION COUNT (MATCHING QUIZ GENERATOR: 10, 25, 50) ---
+        // --- QUESTION COUNT (10 TO 50 QUESTIONS PER TOPIC) ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "NUMBER OF QUESTIONS",
+                text = "NUMBER OF QUESTIONS (10 – 50)",
                 color = TextSubtle,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -1105,7 +1116,7 @@ private fun ExamSelectionSetupView(
                 border = BorderStroke(1.dp, ChatGptPlusStarBlue)
             ) {
                 Text(
-                    text = "50-Question Exam Available",
+                    text = "${state.config.questionCount} Questions Selected",
                     color = ChatGptPlusStarBlue,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1116,11 +1127,12 @@ private fun ExamSelectionSetupView(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Quick Preset Chips: 10, 20, 30, 40, 50 Qs
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(10, 25, 50).forEach { count ->
+            listOf(10, 20, 30, 40, 50).forEach { count ->
                 val isSel = state.config.questionCount == count
                 Surface(
                     modifier = Modifier
@@ -1131,7 +1143,7 @@ private fun ExamSelectionSetupView(
                     color = if (isSel) PureWhite else TrueBlack
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 10.dp),
+                        modifier = Modifier.padding(vertical = 9.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1140,14 +1152,14 @@ private fun ExamSelectionSetupView(
                                 Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 tint = if (isSel) TrueBlack else ChatGptPlusStarBlue,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(11.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
                         }
                         Text(
                             text = "$count Qs",
                             color = if (isSel) TrueBlack else PureWhite,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
                         )
                     }
@@ -1155,7 +1167,82 @@ private fun ExamSelectionSetupView(
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Continuous Slider (10 to 50 questions)
+        androidx.compose.material3.Slider(
+            value = state.config.questionCount.toFloat().coerceIn(10f, 50f),
+            onValueChange = { onSelectQuestionCount(it.roundToInt().coerceIn(10, 50)) },
+            valueRange = 10f..50f,
+            steps = 39,
+            colors = SliderDefaults.colors(
+                thumbColor = PureWhite,
+                activeTrackColor = PureWhite,
+                inactiveTrackColor = DarkSurface
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("waec_jamb_question_count_slider")
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("10 Qs (Quick Drill)", color = TextSubtle, fontSize = 10.sp)
+            Text("30 Qs (Standard)", color = TextSubtle, fontSize = 10.sp)
+            Text("50 Qs (Full Mock)", color = TextSubtle, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Onscreen Calculator Quick Button in Setup
+        Surface(
+            onClick = onOpenCalculator,
+            shape = RoundedCornerShape(10.dp),
+            color = DarkSurface,
+            border = BorderStroke(1.dp, BorderSubtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("open_exam_calculator_setup")
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Onscreen Exam Calculator",
+                        tint = PureWhite,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text("Exam Hall Calculator", color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("WAEC & JAMB CBT approved scientific operations", color = TextMutedGray, fontSize = 10.sp)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF1E2838),
+                    border = BorderStroke(1.dp, ChatGptPlusStarBlue)
+                ) {
+                    Text(
+                        text = "Open",
+                        color = PureWhite,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // --- NEXT / START EXAM BUTTON ---
         val canStartExam = state.config.selectedSubjects.size in 4..10
@@ -1463,7 +1550,8 @@ private fun ActiveExamView(
     onSubmit: () -> Unit,
     onExit: () -> Unit,
     onPlayAudio: (String) -> Unit,
-    onStopAudio: () -> Unit
+    onStopAudio: () -> Unit,
+    onOpenCalculator: () -> Unit = {}
 ) {
     val question = state.currentQuestion ?: return
     val scrollState = rememberScrollState()
@@ -1504,37 +1592,58 @@ private fun ActiveExamView(
                 )
             }
 
-            // Timer (for Mock Exam) or Flag button
-            if (state.config.mode == ExamPrepMode.MOCK_EXAM) {
-                val mins = state.secondsRemaining / 60
-                val secs = state.secondsRemaining % 60
-                val timerColor = if (state.secondsRemaining < 180) Color(0xFFFF5252) else PureWhite
-                Row(
-                    modifier = Modifier
-                        .background(Color(0xFF221111), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.HourglassTop, contentDescription = null, tint = timerColor, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = String.format("%02d:%02d", mins, secs),
-                        color = timerColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            } else {
+            // Onscreen Calculator + Timer/Flag
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 IconButton(
-                    onClick = { onToggleFlag(state.currentQuestionIndex) },
-                    modifier = Modifier.size(36.dp)
+                    onClick = onOpenCalculator,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(DarkSurface)
+                        .testTag("exam_calculator_button")
                 ) {
                     Icon(
-                        imageVector = if (question.isFlagged) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = "Flag Question",
-                        tint = if (question.isFlagged) Color(0xFFFFB300) else PureWhite,
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Open Exam Calculator",
+                        tint = PureWhite,
                         modifier = Modifier.size(20.dp)
                     )
+                }
+
+                if (state.config.mode == ExamPrepMode.MOCK_EXAM) {
+                    val mins = state.secondsRemaining / 60
+                    val secs = state.secondsRemaining % 60
+                    val timerColor = if (state.secondsRemaining < 180) Color(0xFFFF5252) else PureWhite
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFF221111), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.HourglassTop, contentDescription = null, tint = timerColor, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = String.format("%02d:%02d", mins, secs),
+                            color = timerColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = { onToggleFlag(state.currentQuestionIndex) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (question.isFlagged) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = "Flag Question",
+                            tint = if (question.isFlagged) Color(0xFFFFB300) else PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }

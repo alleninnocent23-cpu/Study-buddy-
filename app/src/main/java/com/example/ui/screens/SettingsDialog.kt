@@ -52,6 +52,9 @@ import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.ui.theme.ChatGptPlusStarBlue
 import com.example.ui.theme.TextSubtle
 import com.example.ui.theme.TrueBlack
 
@@ -66,6 +69,7 @@ fun SettingsDialog(
 ) {
     var keyText by remember { mutableStateOf(GeminiClient.customApiKey ?: "") }
     var saveFeedback by remember { mutableStateOf<String?>(null) }
+    var showApiManagementDialog by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         GlassCard(
@@ -311,6 +315,36 @@ fun SettingsDialog(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Advanced AI API Management & Automatic Failover Button
+                Button(
+                    onClick = { showApiManagementDialog = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1E2838),
+                        contentColor = PureWhite
+                    ),
+                    border = BorderStroke(1.dp, ChatGptPlusStarBlue),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_api_management_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = ChatGptPlusStarBlue,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AI API Management & Auto Failover",
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Logout Button
@@ -330,5 +364,9 @@ fun SettingsDialog(
                 }
             }
         }
+    }
+
+    if (showApiManagementDialog) {
+        ApiManagementDialog(onDismiss = { showApiManagementDialog = false })
     }
 }

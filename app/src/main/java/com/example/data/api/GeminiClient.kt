@@ -194,13 +194,6 @@ object GeminiClient {
             return@withContext Result.success(ExplanationResult(directReply, "none", "none"))
         }
 
-        val apiKey = getEffectiveApiKey()
-        if (apiKey.isEmpty()) {
-            return@withContext Result.failure(
-                IllegalStateException("Gemini API key is not configured. Please set your API key in Settings or the Secrets panel.")
-            )
-        }
-
         val fieldDirective = getFieldPersonalizationDirective(subject)
 
         val systemInstructionText = """
@@ -226,9 +219,10 @@ object GeminiClient {
             - Never expose placeholders such as [USER_NAME], {student}, {answer}, <response>, <system>.
             - If an internal value appears, rewrite it into clean human text.
 
-            FORMATTING
-            - Use clean formatting: normal paragraphs, short headings, bullet points, numbered steps, clean equations when necessary, tables when useful.
-            - Do not add unnecessary symbols. Do not randomly insert $, {}, [], <>, backticks, slashes, or pipes.
+            FORMATTING & TABULAR FORMS
+            - Use clean formatting: normal paragraphs, short headings, bullet points, numbered steps, clean equations when necessary.
+            - TABULAR FORMS & COMPARISONS: When the student asks for a table, tabular form, comparison, side-by-side data, or summary, you MUST generate a clean markdown table (| Col 1 | Col 2 | \n | --- | --- | \n | Val 1 | Val 2 |). Keep table columns cleanly aligned.
+            - Do not add unnecessary decorative symbols. Do not randomly insert $, {}, [], <>, backticks, slashes, or pipes.
             - When equations and calculations improve clarity, format clean display equations with $$...$$ (e.g. $${'$'}${'$'}Speed = \frac{Distance}{Time} = \frac{100}{20} = 5\text{ m/s}${'$'}${'$'}).
             - For programming code, use clean markdown fenced code blocks (```python ... ```).
 
@@ -260,202 +254,294 @@ object GeminiClient {
             Respond directly as StudyBuddy following the Core Principle and guidelines above.
         """.trimIndent()
 
-        try {
-            val requestJson = JSONObject().apply {
-                put("systemInstruction", JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("text", systemInstructionText)
-                        })
-                    })
-                })
+        AiApiManager.executeWithFailover("explainTopic") { keyEntry ->
+            val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
+            if (effectiveKey.isBlank()) {
+                return@executeWithFailover Result.failure(
+                    IllegalStateException("No API key available for AI requests. Configure an API key in Settings or AI Studio Secrets.")
+                )
+            }
 
-                val contents = JSONArray()
-                // Append previous turns from conversation if available for conversational memory
-                conversationHistory.takeLast(6).forEach { (role, histText) ->
-                    if (histText.isNotBlank()) {
-                        contents.put(JSONObject().apply {
-                            put("role", if (role == "user") "user" else "model")
-                            put("parts", JSONArray().apply {
-                                put(JSONObject().apply { put("text", histText) })
+            try {
+                val rawText: String = when (keyEntry.provider) {
+                    AiProviderType.GEMINI -> {
+                        val requestJson = JSONObject().apply {
+                            put("systemInstruction", JSONObject().apply {
+                                put("parts", JSONArray().apply {
+                                    put(JSONObject().apply { put("text", systemInstructionText) })
+                                })
                             })
-                        })
+
+                            val contents = JSONArray()
+                            conversationHistory.takeLast(6).forEach { (role, histText) ->
+                                if (histText.isNotBlank()) {
+                                    contents.put(JSONObject().apply {
+                                        put("role", if (role == "user") "user" else "model")
+                                        put("parts", JSONArray().apply {
+                                            put(JSONObject().apply { put("text", histText) })
+                                        })
+                                    })
+                                }
+                            }
+
+                            contents.put(JSONObject().apply {
+                                put("role", "user")
+                                put("parts", JSONArray().apply {
+                                    put(JSONObject().apply { put("text", prompt) })
+                                })
+                            })
+                            put("contents", contents)
+
+                            put("generationConfig", JSONObject().apply {
+                                put("temperature", 0.4)
+                                put("topP", 0.95)
+                            })
+                        }
+
+                        val request = Request.Builder()
+                            .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
+                            .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                            .build()
+
+                        val response = okHttpClient.newCall(request).execute()
+                        val bodyString = response.body?.string() ?: ""
+
+                        if (!response.isSuccessful) {
+                            val errorMsg = try {
+                                JSONObject(bodyString).getJSONObject("error").getString("message")
+                            } catch (e: Exception) {
+                                "HTTP ${response.code}: ${response.message}"
+                            }
+                            return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
+                        }
+
+                        val jsonResponse = JSONObject(bodyString)
+                        jsonResponse.getJSONArray("candidates")
+                            .getJSONObject(0)
+                            .getJSONObject("content")
+                            .getJSONArray("parts")
+                            .getJSONObject(0)
+                            .getString("text")
+                    }
+                    AiProviderType.OPENROUTER, AiProviderType.GROQ, AiProviderType.CUSTOM_OPENAI -> {
+                        val messages = JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("role", "system")
+                                put("content", systemInstructionText)
+                            })
+                            conversationHistory.takeLast(6).forEach { (role, histText) ->
+                                if (histText.isNotBlank()) {
+                                    put(JSONObject().apply {
+                                        put("role", if (role == "user") "user" else "assistant")
+                                        put("content", histText)
+                                    })
+                                }
+                            }
+                            put(JSONObject().apply {
+                                put("role", "user")
+                                put("content", prompt)
+                            })
+                        }
+
+                        val reqJson = JSONObject().apply {
+                            put("model", keyEntry.provider.defaultModel)
+                            put("messages", messages)
+                            put("temperature", 0.4)
+                        }
+
+                        val request = Request.Builder()
+                            .url(keyEntry.provider.defaultBaseUrl)
+                            .addHeader("Authorization", "Bearer $effectiveKey")
+                            .post(reqJson.toString().toRequestBody("application/json".toMediaType()))
+                            .build()
+
+                        val response = okHttpClient.newCall(request).execute()
+                        val bodyString = response.body?.string() ?: ""
+
+                        if (!response.isSuccessful) {
+                            val errorMsg = try {
+                                JSONObject(bodyString).getJSONObject("error").getString("message")
+                            } catch (e: Exception) {
+                                "HTTP ${response.code}: ${response.message}"
+                            }
+                            return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
+                        }
+
+                        val json = JSONObject(bodyString)
+                        json.getJSONArray("choices")
+                            .getJSONObject(0)
+                            .getJSONObject("message")
+                            .getString("content")
                     }
                 }
 
-                // Current prompt
-                contents.put(JSONObject().apply {
-                    put("role", "user")
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", prompt) })
-                    })
-                })
-                put("contents", contents)
+                val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
+                val match = diagramRegex.find(rawText)
+                var diagramType = "none"
+                var diagramTitle = ""
+                var cleanText = rawText
 
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.4)
-                    put("topP", 0.95)
-                })
-            }
-
-            val request = Request.Builder()
-                .url("$BASE_URL$TEXT_MODEL:generateContent?key=$apiKey")
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = okHttpClient.newCall(request).execute()
-            val bodyString = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                Log.e(TAG, "API error: ${response.code} $bodyString")
-                val errorMsg = try {
-                    JSONObject(bodyString).getJSONObject("error").getString("message")
-                } catch (e: Exception) {
-                    "HTTP ${response.code}: ${response.message}"
+                if (match != null) {
+                    diagramType = match.groupValues[1].lowercase()
+                    diagramTitle = match.groupValues[2].trim()
+                    cleanText = rawText.replace(match.value, "").trim()
+                } else {
+                    val lower = topic.lowercase()
+                    if (lower.contains("parabola") || lower.contains("quadratic") || lower.contains("graph") || lower.contains("sine")) {
+                        diagramType = "cartesian_graph"
+                        diagramTitle = "Function Graph"
+                    } else if (lower.contains("triangle") || lower.contains("pythagor") || lower.contains("hypotenuse")) {
+                        diagramType = "geometry_triangle"
+                        diagramTitle = "Geometric Right Triangle"
+                    } else if (lower.contains("circle") || lower.contains("radius") || lower.contains("diameter") || lower.contains("pi")) {
+                        diagramType = "geometry_circle"
+                        diagramTitle = "Circle & Radius"
+                    } else if (lower.contains("force") || lower.contains("gravity") || lower.contains("newton") || lower.contains("friction")) {
+                        diagramType = "physics_vector"
+                        diagramTitle = "Free Body Force Vectors"
+                    } else if (lower.contains("atom") || lower.contains("electron") || lower.contains("proton") || lower.contains("chemical")) {
+                        diagramType = "chemistry_atom"
+                        diagramTitle = "Atomic Shell Structure"
+                    } else if (lower.contains("cell") || lower.contains("biology") || lower.contains("dna") || lower.contains("mitochondria")) {
+                        diagramType = "cell_biology"
+                        diagramTitle = "Cellular Biology Diagram"
+                    }
                 }
-                return@withContext Result.failure(Exception(errorMsg))
+
+                cleanText = cleanAcademicText(cleanText)
+                Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed in explainTopic attempt with key ${keyEntry.label}", e)
+                Result.failure(e)
             }
-
-            val jsonResponse = JSONObject(bodyString)
-            val text = jsonResponse.getJSONArray("candidates")
-                .getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-                .getJSONObject(0)
-                .getString("text")
-
-            val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
-            val match = diagramRegex.find(text)
-            var diagramType = "none"
-            var diagramTitle = ""
-            var cleanText = text
-
-            if (match != null) {
-                diagramType = match.groupValues[1].lowercase()
-                diagramTitle = match.groupValues[2].trim()
-                cleanText = text.replace(match.value, "").trim()
-            } else {
-                // Heuristic detection based on topic if not tagged
-                val lower = topic.lowercase()
-                if (lower.contains("parabola") || lower.contains("quadratic") || lower.contains("graph") || lower.contains("sine")) {
-                    diagramType = "cartesian_graph"
-                    diagramTitle = "Function Graph"
-                } else if (lower.contains("triangle") || lower.contains("pythagor") || lower.contains("hypotenuse")) {
-                    diagramType = "geometry_triangle"
-                    diagramTitle = "Geometric Right Triangle"
-                } else if (lower.contains("circle") || lower.contains("radius") || lower.contains("diameter") || lower.contains("pi")) {
-                    diagramType = "geometry_circle"
-                    diagramTitle = "Circle & Radius"
-                } else if (lower.contains("force") || lower.contains("gravity") || lower.contains("newton") || lower.contains("friction")) {
-                    diagramType = "physics_vector"
-                    diagramTitle = "Free Body Force Vectors"
-                } else if (lower.contains("atom") || lower.contains("electron") || lower.contains("proton") || lower.contains("chemical")) {
-                    diagramType = "chemistry_atom"
-                    diagramTitle = "Atomic Shell Structure"
-                } else if (lower.contains("cell") || lower.contains("biology") || lower.contains("dna") || lower.contains("mitochondria")) {
-                    diagramType = "cell_biology"
-                    diagramTitle = "Cellular Biology Diagram"
-                }
-            }
-
-            cleanText = cleanAcademicText(cleanText)
-            Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to explain topic", e)
-            Result.failure(e)
         }
     }
 
     suspend fun scanHomeworkImage(bitmap: Bitmap, contextNote: String = "", subject: String = ""): Result<ExplanationResult> = withContext(Dispatchers.IO) {
-        val apiKey = getEffectiveApiKey()
-        if (apiKey.isEmpty()) {
-            return@withContext Result.failure(
-                IllegalStateException("Gemini API key is not configured. Please set your API key in Settings or the Secrets panel.")
-            )
-        }
-
         val base64Image = bitmapToBase64(bitmap)
         val fieldDirective = if (subject.isNotBlank()) getFieldPersonalizationDirective(subject) else ""
         val prompt = """
             You are Study Buddy Homework Assistant. 
             Examine this photo of a student's homework, worksheet, or problem.
             ${if (subject.isNotBlank()) "Student Field of Study: $subject\n$fieldDirective" else ""}
-            Provide a clean, rigorous, professional academic teaching explanation.
+            Provide a clean, rigorous, professional academic teaching explanation matching StudyBuddy standards.
+            
+            RESPONSE STRUCTURE & PROBLEM SOLVING:
+            1. Transcribe the questions, mathematical equations, or problems shown clearly, numbering them (e.g. Problem 1, Problem 2).
+            2. For each problem, provide a clear, step-by-step solution:
+               - Identify given values and the relevant formula
+               - Show clear intermediate working steps
+               - Highlight the final answer clearly (e.g. **Answer: ...**)
+            3. TABULAR FORMS & COMPARISONS:
+               - If the problem or student asks for a table, comparison, or tabular form, format it as a clean markdown table (| Col 1 | Col 2 | \n | --- | --- |).
+            4. Point out common pitfalls or misconceptions students make on this type of problem.
+            ${if (contextNote.isNotEmpty()) "Student note: $contextNote" else ""}
+            
             MATHEMATICAL & SCIENTIFIC FORMATTING:
             - When equations and calculations improve clarity, format clean display equations with ${'$'}${'$'}...${'$'}${'$'} (e.g. ${'$'}${'$'}v = \frac{d}{t}${'$'}${'$'} or ${'$'}${'$'}x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}${'$'}${'$'}).
             - For inline formulas or variables, use ${'$'}...${'$'} (e.g. ${'$'}F = ma${'$'}).
             - Do NOT use emojis, conversational slang, or decorative symbols.
-            1. Transcribe the questions, mathematical equations, or problems shown clearly.
-            2. Provide clear, step-by-step solutions for each problem with formulas, worked steps, and final answers highlighted.
-            3. Point out common pitfalls students make on this type of problem.
-            ${if (contextNote.isNotEmpty()) "Student note: $contextNote" else ""}
             
             At the end, include [DIAGRAM:type:title] if a diagram is relevant.
         """.trimIndent()
 
-        try {
-            val requestJson = JSONObject().apply {
-                val contents = JSONArray().apply {
-                    put(JSONObject().apply {
-                        val parts = JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", prompt)
-                            })
-                            put(JSONObject().apply {
-                                put("inlineData", JSONObject().apply {
-                                    put("mimeType", "image/jpeg")
-                                    put("data", base64Image)
+        AiApiManager.executeWithFailover("scanHomeworkImage") { keyEntry ->
+            val effectiveKey = if (keyEntry.provider == AiProviderType.GEMINI && keyEntry.key.isNotBlank()) {
+                keyEntry.key
+            } else {
+                getEffectiveApiKey()
+            }
+
+            if (effectiveKey.isBlank()) {
+                return@executeWithFailover Result.failure(
+                    IllegalStateException("No valid API key available for Vision OCR. Please set a key in AI Studio Secrets or AI API Management.")
+                )
+            }
+
+            try {
+                val requestJson = JSONObject().apply {
+                    val contents = JSONArray().apply {
+                        put(JSONObject().apply {
+                            val parts = JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
                                 })
-                            })
-                        }
-                        put("parts", parts)
-                    })
+                                put(JSONObject().apply {
+                                    put("inlineData", JSONObject().apply {
+                                        put("mimeType", "image/jpeg")
+                                        put("data", base64Image)
+                                    })
+                                })
+                            }
+                            put("parts", parts)
+                        })
+                    }
+                    put("contents", contents)
                 }
-                put("contents", contents)
-            }
 
-            val request = Request.Builder()
-                .url("$BASE_URL$TEXT_MODEL:generateContent?key=$apiKey")
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+                val request = Request.Builder()
+                    .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
+                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val bodyString = response.body?.string() ?: ""
+                val response = okHttpClient.newCall(request).execute()
+                val bodyString = response.body?.string() ?: ""
 
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Scan OCR error: ${response.code} $bodyString")
-                val errorMsg = try {
-                    JSONObject(bodyString).getJSONObject("error").getString("message")
-                } catch (e: Exception) {
-                    "HTTP ${response.code}: ${response.message}"
+                if (!response.isSuccessful) {
+                    val errorMsg = try {
+                        JSONObject(bodyString).getJSONObject("error").getString("message")
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}: ${response.message}"
+                    }
+                    return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
                 }
-                return@withContext Result.failure(Exception(errorMsg))
+
+                val jsonResponse = JSONObject(bodyString)
+                val text = jsonResponse.getJSONArray("candidates")
+                    .getJSONObject(0)
+                    .getJSONObject("content")
+                    .getJSONArray("parts")
+                    .getJSONObject(0)
+                    .getString("text")
+
+                val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
+                val match = diagramRegex.find(text)
+                var diagramType = "none"
+                var diagramTitle = ""
+                var cleanText = text
+
+                if (match != null) {
+                    diagramType = match.groupValues[1].lowercase()
+                    diagramTitle = match.groupValues[2].trim()
+                    cleanText = text.replace(match.value, "").trim()
+                }
+
+                cleanText = cleanAcademicText(cleanText)
+                Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed in scanHomeworkImage attempt with key ${keyEntry.label}", e)
+                Result.failure(e)
             }
+        }
+    }
 
-            val jsonResponse = JSONObject(bodyString)
-            val text = jsonResponse.getJSONArray("candidates")
-                .getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-                .getJSONObject(0)
-                .getString("text")
-
-            val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
-            val match = diagramRegex.find(text)
-            var diagramType = "none"
-            var diagramTitle = ""
-            var cleanText = text
-
-            if (match != null) {
-                diagramType = match.groupValues[1].lowercase()
-                diagramTitle = match.groupValues[2].trim()
-                cleanText = text.replace(match.value, "").trim()
-            }
-
-            cleanText = cleanAcademicText(cleanText)
-            Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+    /**
+     * Generates an educational concept diagram URL (anatomy, circuits, geometry, graphs, chemistry).
+     */
+    suspend fun generateEducationalImage(
+        prompt: String,
+        topic: String = "",
+        subject: String = ""
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val refinedConcept = if (prompt.isNotBlank()) prompt else "$topic ($subject)"
+            val academicPrompt = "Detailed high-resolution educational textbook diagram of $refinedConcept, labeled scientific illustration, clear vector diagrammatic lines, white clean background, academic curriculum quality, no noise, informative schematic"
+            val encoded = java.net.URLEncoder.encode(academicPrompt, "UTF-8")
+            val seed = (System.currentTimeMillis() % 100000).toInt()
+            val imageUrl = "https://image.pollinations.ai/prompt/$encoded?width=1024&height=768&seed=$seed&nologo=true"
+            Result.success(imageUrl)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to scan homework", e)
+            Log.e(TAG, "Failed to generate educational diagram URL", e)
             Result.failure(e)
         }
     }

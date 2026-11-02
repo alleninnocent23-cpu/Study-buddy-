@@ -15,6 +15,9 @@ import com.example.data.local.QuizEntity
 import com.example.data.local.StudyBuddyDatabase
 import com.example.data.local.StudySessionEntity
 import com.example.data.local.UserEntity
+import com.example.util.GeneratedFileInfo
+import com.example.util.SmartSuggestionGenerator
+import com.example.util.UniversalFileGenerator
 import com.example.util.VoiceGender
 import com.example.util.VoiceManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,7 +95,10 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis(),
     val isLiked: Boolean? = null, // null = unset, true = thumb up, false = thumb down
     val isVoiceNote: Boolean = false,
-    val voiceDurationSeconds: Int = 5
+    val voiceDurationSeconds: Int = 5,
+    val generatedFile: com.example.util.GeneratedFileInfo? = null,
+    val followUpSuggestions: List<String> = emptyList(),
+    val generatedAiImage: Bitmap? = null
 )
 
 data class AuthState(
@@ -496,6 +502,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             val historyList = state.messages.takeLast(6).map {
                 (if (it.sender == MessageSender.USER) "user" else "model") to it.text
             }
+            val fileRequest = UniversalFileGenerator.detectFileRequest(promptText)
+            val isImageRequest = promptText.contains("diagram", ignoreCase = true) ||
+                    promptText.contains("image", ignoreCase = true) ||
+                    promptText.contains("picture", ignoreCase = true) ||
+                    promptText.contains("draw", ignoreCase = true) ||
+                    promptText.contains("illustrate", ignoreCase = true)
+
             val result = if (image != null) {
                 GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
             } else {
@@ -503,21 +516,55 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             }
 
             result.onSuccess { explanation ->
+                val cleanedText = SmartSuggestionGenerator.cleanResponseText(explanation.explanationText)
+                val suggestions = SmartSuggestionGenerator.getFollowUpSuggestions(promptText, explanation.explanationText, state.selectedSubject)
+
+                // Generate real file if requested
+                val generatedFile = if (fileRequest != null) {
+                    try {
+                        UniversalFileGenerator.generateFileFromContent(
+                            context = getApplication(),
+                            topic = promptText,
+                            content = cleanedText,
+                            targetExtension = fileRequest.first,
+                            subject = state.selectedSubject
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else null
+
+                // Generate educational AI image if requested
+                val generatedAiImage = if (isImageRequest) {
+                    try {
+                        GeminiClient.generateEducationalImage(
+                            prompt = promptText,
+                            topic = promptText.take(30),
+                            subject = state.selectedSubject
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else null
+
                 val assistantMsg = ChatMessage(
                     sender = MessageSender.ASSISTANT,
-                    text = explanation.explanationText,
+                    text = cleanedText,
                     diagramType = explanation.diagramType,
-                    diagramTitle = explanation.diagramTitle
+                    diagramTitle = explanation.diagramTitle,
+                    generatedFile = generatedFile,
+                    followUpSuggestions = suggestions,
+                    generatedAiImage = generatedAiImage
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
-                    currentExplanation = explanation,
+                    currentExplanation = explanation.copy(explanationText = cleanedText),
                     messages = tutorState.value.messages + assistantMsg
                 )
                 clearAttachment()
 
                 if (tutorState.value.isVoiceModeActive) {
-                    voiceManager.speak(explanation.explanationText)
+                    voiceManager.speak(cleanedText)
                 }
 
                 // Save to Study Session history in Room
@@ -528,7 +575,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                         topic = promptText,
                         subject = state.selectedSubject,
                         userPrompt = promptText,
-                        explanationText = explanation.explanationText,
+                        explanationText = cleanedText,
                         diagramType = explanation.diagramType,
                         diagramDataJson = explanation.diagramTitle
                     )
@@ -536,23 +583,87 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 refreshRewards(isTaskCompletionEvent = true)
             }.onFailure { err ->
                 val fallback = getCuratedExplanation(promptText, state.selectedSubject)
+                val cleanedText = SmartSuggestionGenerator.cleanResponseText(fallback.explanationText)
+                val suggestions = SmartSuggestionGenerator.getFollowUpSuggestions(promptText, fallback.explanationText, state.selectedSubject)
+
+                val generatedFile = if (fileRequest != null) {
+                    try {
+                        UniversalFileGenerator.generateFileFromContent(
+                            context = getApplication(),
+                            topic = promptText,
+                            content = cleanedText,
+                            targetExtension = fileRequest.first,
+                            subject = state.selectedSubject
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else null
+
+                val generatedAiImage = if (isImageRequest) {
+                    try {
+                        GeminiClient.generateEducationalImage(
+                            prompt = promptText,
+                            topic = promptText.take(30),
+                            subject = state.selectedSubject
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else null
+
                 val assistantMsg = ChatMessage(
                     sender = MessageSender.ASSISTANT,
-                    text = fallback.explanationText,
+                    text = cleanedText,
                     diagramType = fallback.diagramType,
-                    diagramTitle = fallback.diagramTitle
+                    diagramTitle = fallback.diagramTitle,
+                    generatedFile = generatedFile,
+                    followUpSuggestions = suggestions,
+                    generatedAiImage = generatedAiImage
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
-                    currentExplanation = fallback,
+                    currentExplanation = fallback.copy(explanationText = cleanedText),
                     messages = tutorState.value.messages + assistantMsg,
                     error = "Note: Live Gemini API message: ${err.message}. Showing built-in explanation."
                 )
                 clearAttachment()
 
                 if (tutorState.value.isVoiceModeActive) {
-                    voiceManager.speak(fallback.explanationText)
+                    voiceManager.speak(cleanedText)
                 }
+            }
+        }
+    }
+
+    fun generateFileForMessage(messageId: String, extension: String) {
+        val msg = tutorState.value.messages.find { it.id == messageId } ?: return
+        val file = UniversalFileGenerator.generateFileFromContent(
+            context = getApplication(),
+            topic = tutorState.value.sentQuestion ?: "StudyBuddy_Notes",
+            content = msg.text,
+            targetExtension = extension,
+            subject = tutorState.value.selectedSubject
+        )
+        val updated = tutorState.value.messages.map {
+            if (it.id == messageId) it.copy(generatedFile = file) else it
+        }
+        tutorState.value = tutorState.value.copy(messages = updated)
+    }
+
+    fun generateImageForMessage(messageId: String) {
+        viewModelScope.launch {
+            val msg = tutorState.value.messages.find { it.id == messageId } ?: return
+            val img = GeminiClient.generateEducationalImage(
+                prompt = msg.text.take(150),
+                topic = tutorState.value.sentQuestion?.take(30) ?: "Concept Diagram",
+                subject = tutorState.value.selectedSubject
+            )
+            if (img != null) {
+                val updated = tutorState.value.messages.map {
+                    if (it.id == messageId) it.copy(generatedAiImage = img) else it
+                }
+                tutorState.value = tutorState.value.copy(messages = updated)
             }
         }
     }
@@ -1359,15 +1470,28 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             statusMessage = "Loading verified past exam papers for ${subjectsToPractice.size} subjects..."
         )
         viewModelScope.launch {
-            val questions = WaecJambQuestionBank.getMultiSubjectQuestions(
-                examType = curr.config.examType,
-                subjects = subjectsToPractice,
-                selectedYear = curr.config.selectedYear,
-                yearStart = curr.config.yearStart,
-                yearEnd = curr.config.yearEnd,
-                difficulty = curr.config.difficulty,
-                totalCount = curr.config.questionCount
-            )
+            val questions = if (curr.config.topic != "All Topics" && curr.config.topic.isNotBlank()) {
+                WaecJambQuestionBank.getQuestions(
+                    examType = curr.config.examType,
+                    subject = if (curr.config.selectedSubjects.isNotEmpty()) curr.config.selectedSubjects.first() else curr.config.subject,
+                    selectedYear = curr.config.selectedYear,
+                    yearStart = curr.config.yearStart,
+                    yearEnd = curr.config.yearEnd,
+                    topic = curr.config.topic,
+                    difficulty = curr.config.difficulty,
+                    count = curr.config.questionCount
+                )
+            } else {
+                WaecJambQuestionBank.getMultiSubjectQuestions(
+                    examType = curr.config.examType,
+                    subjects = subjectsToPractice,
+                    selectedYear = curr.config.selectedYear,
+                    yearStart = curr.config.yearStart,
+                    yearEnd = curr.config.yearEnd,
+                    difficulty = curr.config.difficulty,
+                    totalCount = curr.config.questionCount
+                )
+            }
 
             val timedSec = curr.config.timedMinutes * 60
             waecJambState.value = curr.copy(

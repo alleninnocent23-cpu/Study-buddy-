@@ -31,6 +31,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.Image
+import com.example.data.api.GeminiClient
+import com.example.ui.components.EducationalImageDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,6 +92,7 @@ fun HomeworkScannerScreen(
     val scrollState = rememberScrollState()
     var customNote by remember { mutableStateOf("") }
     var showCameraCapture by remember { mutableStateOf(false) }
+    var showEducationalImageDialog by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -407,6 +411,34 @@ fun HomeworkScannerScreen(
                                 onPlayAnswer = { onPlayAnswer(result.explanationText) },
                                 onStopVoice = onStopAnswerVoice
                             )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Generate Visual Concept Diagram
+                            OutlinedButton(
+                                onClick = { showEducationalImageDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("homework_generate_diagram_button"),
+                                shape = RoundedCornerShape(8.dp),
+                                border = ButtonDefaults.outlinedButtonBorder.copy(
+                                    brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = PureWhite,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Generate AI Visual Diagram",
+                                    color = PureWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
@@ -423,4 +455,19 @@ fun HomeworkScannerScreen(
             onImageSelected(bitmap)
         }
     )
+
+    if (showEducationalImageDialog) {
+        EducationalImageDialog(
+            initialPrompt = customNote.ifBlank {
+                "Educational diagram illustrating: " + (state.scanResult?.diagramTitle?.ifBlank { "homework problem solution" } ?: "concept model")
+            },
+            subject = "STEM",
+            onDismiss = { showEducationalImageDialog = false },
+            onSaveToNotes = { _, _ -> },
+            onGenerateImage = { prompt ->
+                val res = GeminiClient.generateEducationalImage(prompt)
+                res.getOrNull()
+            }
+        )
+    }
 }
