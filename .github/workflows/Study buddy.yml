@@ -12,41 +12,38 @@ permissions:
 
 jobs:
   build:
-    name: Build StudyBuddy APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup JDK
-        uses: actions/setup-java@v4
+      - name: Setup Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Install Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '9.3.1'
 
-      - name: Locate Gradle Wrapper
+      - name: Generate Gradle Wrapper
         run: |
-          if [ ! -f gradlew ]; then
-            echo "Gradle wrapper missing from repository root."
-            exit 1
-          fi
+          gradle wrapper --gradle-version 9.3.1
           chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build StudyBuddy APK
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload StudyBuddy APK
         uses: actions/upload-artifact@v4
         with:
-          name: StudyBuddy-Android-APK
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          name: StudyBuddy-APK
+          path: '**/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
           retention-days: 14
