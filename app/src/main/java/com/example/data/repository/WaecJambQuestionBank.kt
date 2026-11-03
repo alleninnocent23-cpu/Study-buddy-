@@ -1222,7 +1222,7 @@ object WaecJambQuestionBank {
             }
             list.add(q)
         }
-        return list
+        return list.shuffled()
     }
 
     data class SubjectComboPreset(
@@ -1296,15 +1296,19 @@ object WaecJambQuestionBank {
         yearStart: Int = 1997,
         yearEnd: Int = 2026,
         difficulty: String = "Mixed",
-        totalCount: Int = 20
+        questionsPerSubject: Int = 20,
+        totalCount: Int? = null,
+        shuffle: Boolean = true
     ): List<WaecJambQuestion> {
         val validSubjects = if (subjects.isEmpty()) listOf("Mathematics") else subjects
         val result = mutableListOf<WaecJambQuestion>()
-        val perSubject = (totalCount / validSubjects.size).coerceAtLeast(1)
-        val remainder = totalCount % validSubjects.size
+        val countPerSub = if (totalCount != null) {
+            maxOf(1, totalCount / validSubjects.size)
+        } else {
+            questionsPerSubject
+        }
 
-        validSubjects.forEachIndexed { index, sub ->
-            val countForSub = perSubject + (if (index < remainder) 1 else 0)
+        validSubjects.forEach { sub ->
             val subQuestions = getQuestions(
                 examType = examType,
                 subject = sub,
@@ -1313,10 +1317,12 @@ object WaecJambQuestionBank {
                 yearEnd = yearEnd,
                 topic = "All Topics",
                 difficulty = difficulty,
-                count = countForSub
+                count = countPerSub
             )
-            result.addAll(subQuestions)
+            val ordered = if (shuffle) subQuestions.shuffled() else subQuestions
+            result.addAll(ordered)
         }
-        return if (result.size > totalCount) result.take(totalCount) else result
+        val finalResult = if (totalCount != null) result.take(totalCount) else result
+        return finalResult
     }
 }

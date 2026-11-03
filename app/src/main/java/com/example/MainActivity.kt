@@ -599,7 +599,9 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onTogglePlayVoiceNote = { id, text -> viewModel.togglePlayVoiceNote(id, text) },
                             onHoldStartRecording = { viewModel.startHoldRecording() },
                             onHoldFinishRecording = { viewModel.finishHoldRecording() },
-                            onHoldCancelRecording = { viewModel.cancelHoldRecording() }
+                            onHoldCancelRecording = { viewModel.cancelHoldRecording() },
+                            onGenerateFile = { id, ext -> viewModel.generateFileForMessage(id, ext) },
+                            onGenerateImage = { id -> viewModel.generateImageForMessage(id) }
                         )
                     }
 

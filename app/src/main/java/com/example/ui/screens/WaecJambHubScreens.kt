@@ -52,6 +52,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -577,6 +578,103 @@ fun WaecHubView(
             Text("2026 (Curriculum Verified)", color = TextSubtle, fontSize = 10.sp)
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- QUESTION COUNT SELECTOR (10 - 50 QUESTIONS) ---
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = DarkSurface,
+            border = BorderStroke(1.dp, BorderSubtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("waec_question_count_card")
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "NUMBER OF QUESTIONS PER SUBJECT",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "10 to 50 questions for each subject (${state.config.selectedSubjects.size} subjects)",
+                            color = TextMutedGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8))
+                    ) {
+                        Text(
+                            text = "${state.config.questionCount} Qs / Sub (${state.config.selectedSubjects.size * state.config.questionCount} Total)",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Quick Selection Chips: 10, 20, 30, 40, 50 Qs
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(10, 20, 30, 40, 50).forEach { count ->
+                        val isSelected = state.config.questionCount == count
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) PureWhite else TrueBlack,
+                            border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderSubtle),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onUpdateQuestionCount(count) }
+                                .testTag("waec_chip_${count}_qs")
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$count Qs",
+                                    color = if (isSelected) TrueBlack else PureWhite,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Continuous Slider (10 to 50)
+                Slider(
+                    value = state.config.questionCount.toFloat(),
+                    onValueChange = { onUpdateQuestionCount(it.roundToInt().coerceIn(10, 50)) },
+                    valueRange = 10f..50f,
+                    steps = 39,
+                    colors = SliderDefaults.colors(
+                        thumbColor = PureWhite,
+                        activeTrackColor = PureWhite,
+                        inactiveTrackColor = Color(0xFF333333)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(20.dp))
 
         // --- START BUTTON (PURE WHITE IN CENTER) ---
@@ -596,7 +694,7 @@ fun WaecHubView(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = "START WAEC PRACTICE • ${state.config.selectedSubjects.size} SUBJECTS",
+                text = "START WAEC PRACTICE • ${state.config.questionCount} Qs PER SUBJECT (${state.config.selectedSubjects.size * state.config.questionCount} QUESTIONS)",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.5.sp
@@ -632,6 +730,7 @@ fun JambHubView(
     onSelectYearRange: (start: Int, end: Int) -> Unit,
     onSelectMode: (ExamPrepMode) -> Unit,
     onStartExam: () -> Unit,
+    onUpdateQuestionCount: (Int) -> Unit = {},
     onBackToGetStarted: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -1030,6 +1129,103 @@ fun JambHubView(
             Text("2026 (Curriculum Verified)", color = TextSubtle, fontSize = 10.sp)
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- QUESTION COUNT SELECTOR (10 - 50 QUESTIONS) ---
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = DarkSurface,
+            border = BorderStroke(1.dp, BorderSubtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("jamb_question_count_card")
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "NUMBER OF QUESTIONS PER SUBJECT",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "10 to 50 questions for each subject (${state.config.selectedSubjects.size} subjects)",
+                            color = TextMutedGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8))
+                    ) {
+                        Text(
+                            text = "${state.config.questionCount} Qs / Sub (${state.config.selectedSubjects.size * state.config.questionCount} Total)",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Quick Selection Chips: 10, 20, 30, 40, 50 Qs
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(10, 20, 30, 40, 50).forEach { count ->
+                        val isSelected = state.config.questionCount == count
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) PureWhite else TrueBlack,
+                            border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderSubtle),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onUpdateQuestionCount(count) }
+                                .testTag("jamb_chip_${count}_qs")
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$count Qs",
+                                    color = if (isSelected) TrueBlack else PureWhite,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Continuous Slider (10 to 50)
+                Slider(
+                    value = state.config.questionCount.toFloat(),
+                    onValueChange = { onUpdateQuestionCount(it.roundToInt().coerceIn(10, 50)) },
+                    valueRange = 10f..50f,
+                    steps = 39,
+                    colors = SliderDefaults.colors(
+                        thumbColor = PureWhite,
+                        activeTrackColor = PureWhite,
+                        inactiveTrackColor = Color(0xFF333333)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(20.dp))
 
         // --- START BUTTON (PURE WHITE IN CENTER) ---
@@ -1049,7 +1245,7 @@ fun JambHubView(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = "START JAMB CBT PRACTICE • ${state.config.selectedSubjects.size} SUBJECTS",
+                text = "START JAMB CBT PRACTICE • ${state.config.questionCount} Qs PER SUBJECT (${state.config.selectedSubjects.size * state.config.questionCount} QUESTIONS)",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.5.sp

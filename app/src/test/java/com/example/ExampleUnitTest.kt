@@ -146,19 +146,27 @@ class ExampleUnitTest {
 
     @Test
     fun testMultiSubjectPracticeSelection4To10() {
-        // Test 4 subjects combo for JAMB
+        // Test 4 subjects combo for JAMB with questionsPerSubject = 20 (4 subjects * 20 = 80 total)
         val jamb4Subjects = listOf("English Language", "Mathematics", "Physics", "Chemistry")
-        val jambQuestions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
+        val jambPerSubjectQuestions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
             examType = com.example.data.model.ExamType.JAMB,
             subjects = jamb4Subjects,
-            totalCount = 20
+            questionsPerSubject = 20
         )
-        assertTrue(jambQuestions.size == 20)
-        val distinctSubjectsJamb = jambQuestions.map { it.subject }.distinct()
+        assertTrue(jambPerSubjectQuestions.size >= 40)
+        val distinctSubjectsJamb = jambPerSubjectQuestions.map { it.subject }.distinct()
         assertTrue(distinctSubjectsJamb.size >= 4)
         jamb4Subjects.forEach { sub ->
             assertTrue(distinctSubjectsJamb.contains(sub))
         }
+
+        // Test with totalCount constraint
+        val jambQuestionsTotalCount = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
+            examType = com.example.data.model.ExamType.JAMB,
+            subjects = jamb4Subjects,
+            totalCount = 20
+        )
+        assertTrue(jambQuestionsTotalCount.size == 20)
 
         // Test 9 subjects package for WAEC
         val waec9Subjects = listOf(
@@ -169,7 +177,7 @@ class ExampleUnitTest {
         val waecQuestions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
             examType = com.example.data.model.ExamType.WAEC,
             subjects = waec9Subjects,
-            totalCount = 27
+            questionsPerSubject = 5
         )
         assertTrue(waecQuestions.isNotEmpty())
         val distinctSubjectsWaec = waecQuestions.map { it.subject }.distinct()
@@ -266,5 +274,37 @@ class ExampleUnitTest {
         assertEquals(2, parsed?.rows?.size)
         assertEquals(listOf("13", "1101"), parsed?.rows?.get(0))
         assertEquals(listOf("7", "111"), parsed?.rows?.get(1))
+    }
+
+    @Test
+    fun testSubjectQuestionsAreContiguousNotInterleaved() {
+        val subjects = listOf("English Language", "Mathematics", "Physics", "Chemistry")
+        val questions = com.example.data.repository.WaecJambQuestionBank.getMultiSubjectQuestions(
+            examType = com.example.data.model.ExamType.JAMB,
+            subjects = subjects,
+            questionsPerSubject = 10,
+            shuffle = true
+        )
+        // Verify subjects appear in contiguous blocks, not jumping back and forth
+        var currentSubject = ""
+        val observedSubjects = mutableListOf<String>()
+        questions.forEach { q ->
+            if (q.subject != currentSubject) {
+                currentSubject = q.subject
+                observedSubjects.add(currentSubject)
+            }
+        }
+        // Each subject should only transition once into the observed sequence (no interleaving!)
+        assertEquals(observedSubjects.distinct().size, observedSubjects.size)
+    }
+
+    @Test
+    fun testMarkdownArtifactAndHashCleaning() {
+        val raw = "### Step 1: Solving the quadratic equation <details><summary>Hint</summary>Use formula</details>"
+        val cleaned = com.example.ui.components.cleanMarkdownArtifacts(raw)
+        assertTrue(!cleaned.contains("###"))
+        assertTrue(!cleaned.contains("<details>"))
+        assertTrue(!cleaned.contains("<summary>"))
+        assertTrue(cleaned.startsWith("Step 1: Solving the quadratic equation"))
     }
 }

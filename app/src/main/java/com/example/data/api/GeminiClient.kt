@@ -88,7 +88,13 @@ object GeminiClient {
             .replace(Regex("\\$\\s*\\(\\s*\\)"), "")
             .replace(Regex("\\?\\s*\\$"), "")
 
-        // 5. Clean whitespace and duplicate line breaks
+        // 5. Strip raw HTML tags like <details>, <summary>, <br>, <b>
+        text = text.replace(Regex("""<(details|summary|b|i|u|br|p|span|div)[^>]*>|</(details|summary|b|i|u|br|p|span|div)>""", RegexOption.IGNORE_CASE), " ")
+
+        // 6. Strip raw markdown heading hashes (### , ## ) at line starts
+        text = text.replace(Regex("""(?m)^#{1,6}\s*"""), "")
+
+        // 7. Clean whitespace and duplicate line breaks
         text = text.replace(Regex("[ \\t]+"), " ")
             .replace(Regex("\\n{3,}"), "\n\n")
 

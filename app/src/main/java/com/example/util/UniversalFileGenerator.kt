@@ -624,7 +624,7 @@ object UniversalFileGenerator {
             append("<p:sp>")
             append("""<p:nvSpPr><p:cNvPr id="2" name="SlideTitle"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>""")
             append("""<p:spPr><a:xfrm><a:off x="914400" y="548640"/><a:ext cx="10287000" cy="914400"/></a:xfrm></p:spPr>""")
-            append("<p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="en-US" sz="3200" b="1"/><a:t>Key Concepts &amp; Breakdown</a:t></a:r></a:p></p:txBody>")
+            append("<p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang=\"en-US\" sz=\"3200\" b=\"1\"/><a:t>Key Concepts &amp; Breakdown</a:t></a:r></a:p></p:txBody>")
             append("</p:sp>")
             append("<p:sp>")
             append("""<p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>""")

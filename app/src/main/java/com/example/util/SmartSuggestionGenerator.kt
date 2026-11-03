@@ -33,7 +33,10 @@ object SmartSuggestionGenerator {
      * Removes the internal [SUGGESTIONS: ...] tag from the displayed AI response text.
      */
     fun cleanResponseText(rawText: String): String {
-        return rawText.replace(Regex("""\[SUGGESTIONS:\s*[^\]]+\]""", RegexOption.IGNORE_CASE), "").trimEnd()
+        var text = rawText.replace(Regex("""\[SUGGESTIONS:\s*[^\]]+\]""", RegexOption.IGNORE_CASE), "")
+        text = text.replace(Regex("""<(details|summary|b|i|u|br|p|span|div)[^>]*>|</(details|summary|b|i|u|br|p|span|div)>""", RegexOption.IGNORE_CASE), " ")
+        text = text.replace(Regex("""(?m)^#{1,6}\s*"""), "")
+        return text.trimEnd()
     }
 
     private fun generateContextualSuggestions(

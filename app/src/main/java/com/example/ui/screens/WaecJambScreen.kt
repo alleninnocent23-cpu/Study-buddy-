@@ -102,6 +102,8 @@ import com.example.ui.theme.ChatGptPlusStarBlue
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import com.example.ui.theme.TextSubtle
 import com.example.ui.theme.TrueBlack
 
@@ -193,6 +195,7 @@ fun WaecJambScreen(
                                     onSelectYearRange = onSelectYearRange,
                                     onSelectMode = onSelectMode,
                                     onStartExam = onStartExam,
+                                    onUpdateQuestionCount = onSelectQuestionCount,
                                     onBackToGetStarted = onBackToGetStarted
                                 )
                             }
@@ -209,6 +212,7 @@ fun WaecJambScreen(
                                     onSelectYearRange = onSelectYearRange,
                                     onSelectMode = onSelectMode,
                                     onStartExam = onStartExam,
+                                    onUpdateQuestionCount = onSelectQuestionCount,
                                     onBackToGetStarted = onBackToGetStarted
                                 )
                             }
@@ -1556,6 +1560,29 @@ private fun ActiveExamView(
     val question = state.currentQuestion ?: return
     val scrollState = rememberScrollState()
     val isPracticeMode = state.config.mode == ExamPrepMode.PRACTICE
+    val context = LocalContext.current
+    var subjectNoticeMessage by remember { mutableStateOf<String?>(null) }
+
+    val distinctSubjects = remember(state.questions) {
+        state.questions.map { it.subject }.distinct()
+    }
+    val currentSub = question.subject
+    val currentSubIdx = remember(distinctSubjects, currentSub) {
+        distinctSubjects.indexOfFirst { it.equals(currentSub, ignoreCase = true) }
+    }
+    val currentSubQuestions = remember(state.questions, currentSub) {
+        state.questions.filter { it.subject.equals(currentSub, ignoreCase = true) }
+    }
+    val questionNumberInSub = remember(currentSubQuestions, question.id) {
+        val idx = currentSubQuestions.indexOfFirst { it.id == question.id }
+        if (idx >= 0) idx + 1 else 1
+    }
+    val totalInCurrentSub = currentSubQuestions.size
+    val answeredInCurrentSub = currentSubQuestions.count { it.userSelectedIndex != null }
+    val unansweredInCurrentSub = totalInCurrentSub - answeredInCurrentSub
+    val isLastQuestionInSub = questionNumberInSub == totalInCurrentSub
+    val hasNextSubject = currentSubIdx in 0 until (distinctSubjects.size - 1)
+    val nextSubjectName = if (hasNextSubject) distinctSubjects[currentSubIdx + 1] else null
 
     Column(
         modifier = Modifier
@@ -1580,15 +1607,24 @@ private fun ActiveExamView(
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "${question.exam.code} • ${question.subject}",
+                    text = if (distinctSubjects.size > 1) {
+                        "${question.exam.code} • ${question.subject} (Subject ${currentSubIdx + 1} of ${distinctSubjects.size})"
+                    } else {
+                        "${question.exam.code} • ${question.subject}"
+                    },
                     color = PureWhite,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Question ${state.currentQuestionIndex + 1} of ${state.questions.size}",
-                    color = TextMutedGray,
-                    fontSize = 11.sp
+                    text = if (distinctSubjects.size > 1) {
+                        "Question $questionNumberInSub of $totalInCurrentSub in ${question.subject} • (Total Q${state.currentQuestionIndex + 1}/${state.questions.size})"
+                    } else {
+                        "Question ${state.currentQuestionIndex + 1} of ${state.questions.size}"
+                    },
+                    color = Color(0xFF38BDF8),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
 
@@ -1649,9 +1685,6 @@ private fun ActiveExamView(
         }
 
         // Multi-Subject Navigation Row (when multiple subjects are being practiced)
-        val distinctSubjects = remember(state.questions) {
-            state.questions.map { it.subject }.distinct()
-        }
         if (distinctSubjects.size > 1) {
             Row(
                 modifier = Modifier
@@ -1660,27 +1693,81 @@ private fun ActiveExamView(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                distinctSubjects.forEach { sub ->
+                distinctSubjects.forEachIndexed { subIndex, sub ->
                     val isCurrentSub = question.subject.equals(sub, ignoreCase = true)
                     val countForSub = state.questions.count { it.subject.equals(sub, ignoreCase = true) }
                     val answeredForSub = state.questions.count { it.subject.equals(sub, ignoreCase = true) && it.userSelectedIndex != null }
+                    val isSubComplete = (countForSub > 0 && answeredForSub >= countForSub)
                     Surface(
                         onClick = {
-                            val firstIdx = state.questions.indexOfFirst { it.subject.equals(sub, ignoreCase = true) }
-                            if (firstIdx >= 0) onJump(firstIdx)
+                            if (subIndex > currentSubIdx && unansweredInCurrentSub > 0) {
+                                val msg = "Finish all questions in ${question.subject} first ($unansweredInCurrentSub remaining)!"
+                                subjectNoticeMessage = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            } else {
+                                subjectNoticeMessage = null
+                                val firstIdx = state.questions.indexOfFirst { it.subject.equals(sub, ignoreCase = true) }
+                                if (firstIdx >= 0) onJump(firstIdx)
+                            }
                         },
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isCurrentSub) PureWhite else DarkSurface,
-                        border = BorderStroke(1.dp, if (isCurrentSub) PureWhite else BorderSubtle)
-                    ) {
-                        Text(
-                            text = "$sub ($answeredForSub/$countForSub)",
-                            color = if (isCurrentSub) TrueBlack else PureWhite,
-                            fontSize = 10.sp,
-                            fontWeight = if (isCurrentSub) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        color = when {
+                            isCurrentSub -> PureWhite
+                            isSubComplete -> Color(0xFF14301B)
+                            else -> DarkSurface
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            when {
+                                isCurrentSub -> PureWhite
+                                isSubComplete -> Color(0xFF22C55E)
+                                else -> BorderSubtle
+                            }
                         )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            if (isSubComplete && !isCurrentSub) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF22C55E), modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                            }
+                            Text(
+                                text = "$sub ($answeredForSub/$countForSub)",
+                                color = if (isCurrentSub) TrueBlack else if (isSubComplete) Color(0xFF86EFAC) else PureWhite,
+                                fontSize = 10.sp,
+                                fontWeight = if (isCurrentSub) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        if (subjectNoticeMessage != null) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF291515),
+                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clickable { subjectNoticeMessage = null }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = subjectNoticeMessage ?: "",
+                        color = PureWhite,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -2043,27 +2130,68 @@ private fun ActiveExamView(
             }
 
             // Next Button (Right) - Black with white border
+            val isNextEnabled = when {
+                isLastQuestionInSub && hasNextSubject && unansweredInCurrentSub > 0 -> true
+                state.currentQuestionIndex >= state.questions.size - 1 -> false
+                else -> true
+            }
+            val nextButtonText = when {
+                isLastQuestionInSub && hasNextSubject && unansweredInCurrentSub > 0 -> "Finish ${question.subject.take(8)} ($unansweredInCurrentSub left)"
+                isLastQuestionInSub && hasNextSubject -> "Next: ${nextSubjectName?.take(10)} →"
+                state.currentQuestionIndex >= state.questions.size - 1 -> "Exam End"
+                else -> "Next"
+            }
+
             OutlinedButton(
-                onClick = onNext,
-                enabled = state.currentQuestionIndex < state.questions.size - 1,
+                onClick = {
+                    subjectNoticeMessage = null
+                    if (isLastQuestionInSub && hasNextSubject) {
+                        if (unansweredInCurrentSub > 0) {
+                            val firstUnansweredInSub = state.questions.indexOfFirst {
+                                it.subject.equals(question.subject, ignoreCase = true) && it.userSelectedIndex == null
+                            }
+                            if (firstUnansweredInSub >= 0) {
+                                onJump(firstUnansweredInSub)
+                                val qNum = currentSubQuestions.indexOfFirst { it.id == state.questions[firstUnansweredInSub].id } + 1
+                                val msg = "Please answer Question $qNum in ${question.subject} before moving to $nextSubjectName ($unansweredInCurrentSub left)!"
+                                subjectNoticeMessage = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            val firstIdxNextSub = state.questions.indexOfFirst {
+                                it.subject.equals(nextSubjectName, ignoreCase = true)
+                            }
+                            if (firstIdxNextSub >= 0) onJump(firstIdxNextSub) else onNext()
+                        }
+                    } else {
+                        onNext()
+                    }
+                },
+                enabled = isNextEnabled,
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else BorderSubtle),
+                border = BorderStroke(1.dp, if (isNextEnabled) PureWhite else BorderSubtle),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = TrueBlack,
-                    contentColor = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle
+                    contentColor = if (isNextEnabled) PureWhite else TextSubtle
                 ),
                 modifier = Modifier
                     .weight(1f)
                     .height(44.dp)
                     .testTag("next_exam_question_button")
             ) {
-                Text("Next", color = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = nextButtonText,
+                    color = if (isNextEnabled) PureWhite else TextSubtle,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
-                    tint = if (state.currentQuestionIndex < state.questions.size - 1) PureWhite else TextSubtle
+                    tint = if (isNextEnabled) PureWhite else TextSubtle
                 )
             }
         }

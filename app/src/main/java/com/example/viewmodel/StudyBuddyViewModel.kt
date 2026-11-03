@@ -96,9 +96,10 @@ data class ChatMessage(
     val isLiked: Boolean? = null, // null = unset, true = thumb up, false = thumb down
     val isVoiceNote: Boolean = false,
     val voiceDurationSeconds: Int = 5,
+    val voiceAudioFilePath: String? = null,
     val generatedFile: com.example.util.GeneratedFileInfo? = null,
     val followUpSuggestions: List<String> = emptyList(),
-    val generatedAiImage: Bitmap? = null
+    val generatedAiImageUrl: String? = null
 )
 
 data class AuthState(
@@ -466,7 +467,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun sendChatMessage(
         overridePrompt: String? = null,
         isVoiceNote: Boolean = false,
-        voiceDurationSeconds: Int = 5
+        voiceDurationSeconds: Int = 5,
+        voiceAudioFilePath: String? = null
     ) {
         val state = tutorState.value
         val inputPrompt = (overridePrompt ?: state.topicInput).trim()
@@ -476,7 +478,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         if (inputPrompt.isBlank() && image == null) return
 
         val promptText = if (inputPrompt.isNotBlank()) inputPrompt else "Analyze and solve this attached assignment"
-        voiceManager.stopSpeaking()
+        stopAllVoicePlayback()
 
         // 1. Add User message
         val userMsg = ChatMessage(
@@ -485,7 +487,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             attachedImage = image,
             attachedFileName = fileName,
             isVoiceNote = isVoiceNote,
-            voiceDurationSeconds = voiceDurationSeconds
+            voiceDurationSeconds = voiceDurationSeconds,
+            voiceAudioFilePath = voiceAudioFilePath
         )
         val updatedMessages = state.messages + userMsg
 
@@ -535,13 +538,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 } else null
 
                 // Generate educational AI image if requested
-                val generatedAiImage = if (isImageRequest) {
+                val generatedAiImageUrl = if (isImageRequest) {
                     try {
                         GeminiClient.generateEducationalImage(
                             prompt = promptText,
                             topic = promptText.take(30),
                             subject = state.selectedSubject
-                        )
+                        ).getOrNull()
                     } catch (e: Exception) {
                         null
                     }
@@ -554,7 +557,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     diagramTitle = explanation.diagramTitle,
                     generatedFile = generatedFile,
                     followUpSuggestions = suggestions,
-                    generatedAiImage = generatedAiImage
+                    generatedAiImageUrl = generatedAiImageUrl
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
@@ -600,13 +603,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } else null
 
-                val generatedAiImage = if (isImageRequest) {
+                val generatedAiImageUrl = if (isImageRequest) {
                     try {
                         GeminiClient.generateEducationalImage(
                             prompt = promptText,
                             topic = promptText.take(30),
                             subject = state.selectedSubject
-                        )
+                        ).getOrNull()
                     } catch (e: Exception) {
                         null
                     }
@@ -619,7 +622,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     diagramTitle = fallback.diagramTitle,
                     generatedFile = generatedFile,
                     followUpSuggestions = suggestions,
-                    generatedAiImage = generatedAiImage
+                    generatedAiImageUrl = generatedAiImageUrl
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
@@ -653,15 +656,16 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun generateImageForMessage(messageId: String) {
         viewModelScope.launch {
-            val msg = tutorState.value.messages.find { it.id == messageId } ?: return
-            val img = GeminiClient.generateEducationalImage(
+            val msg = tutorState.value.messages.find { it.id == messageId } ?: return@launch
+            val imgResult = GeminiClient.generateEducationalImage(
                 prompt = msg.text.take(150),
                 topic = tutorState.value.sentQuestion?.take(30) ?: "Concept Diagram",
                 subject = tutorState.value.selectedSubject
             )
-            if (img != null) {
+            val imgUrl = imgResult.getOrNull()
+            if (imgUrl != null) {
                 val updated = tutorState.value.messages.map {
-                    if (it.id == messageId) it.copy(generatedAiImage = img) else it
+                    if (it.id == messageId) it.copy(generatedAiImageUrl = imgUrl) else it
                 }
                 tutorState.value = tutorState.value.copy(messages = updated)
             }
@@ -676,6 +680,63 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val recordingDurationSeconds = MutableStateFlow(0)
     val currentlyPlayingVoiceNoteId = MutableStateFlow<String?>(null)
     private var recordingTimerJob: kotlinx.coroutines.Job? = null
+    private var voiceNoteRecorder: android.media.MediaRecorder? = null
+    private var currentRecordedAudioFile: java.io.File? = null
+    private var voiceNoteMediaPlayer: android.media.MediaPlayer? = null
+
+    private fun startAudioRecordingToFile(): java.io.File? {
+        return try {
+            val audioFile = java.io.File(
+                getApplication<Application>().cacheDir,
+                "user_voice_${System.currentTimeMillis()}.m4a"
+            )
+            val recorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                android.media.MediaRecorder(getApplication<Application>())
+            } else {
+                @Suppress("DEPRECATION")
+                android.media.MediaRecorder()
+            }
+            recorder.apply {
+                setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+            voiceNoteRecorder = recorder
+            currentRecordedAudioFile = audioFile
+            audioFile
+        } catch (e: Exception) {
+            android.util.Log.e("StudyBuddyVoice", "Error starting MediaRecorder: ${e.message}")
+            try {
+                voiceNoteRecorder?.release()
+            } catch (_: Exception) {}
+            voiceNoteRecorder = null
+            currentRecordedAudioFile = null
+            null
+        }
+    }
+
+    private fun stopAudioRecordingToFile(): String? {
+        val path = try {
+            voiceNoteRecorder?.apply {
+                stop()
+                release()
+            }
+            voiceNoteRecorder = null
+            currentRecordedAudioFile?.takeIf { it.exists() && it.length() > 0 }?.absolutePath
+        } catch (e: Exception) {
+            android.util.Log.e("StudyBuddyVoice", "Error stopping MediaRecorder: ${e.message}")
+            try {
+                voiceNoteRecorder?.release()
+            } catch (_: Exception) {}
+            voiceNoteRecorder = null
+            currentRecordedAudioFile?.takeIf { it.exists() && it.length() > 0 }?.absolutePath
+        }
+        currentRecordedAudioFile = null
+        return path
+    }
 
     fun startVoiceInput() {
         voiceManager.startListening { transcribedText ->
@@ -708,16 +769,19 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 recordingDurationSeconds.value += 1
             }
         }
-        voiceManager.stopSpeaking()
+        stopAllVoicePlayback()
+        startAudioRecordingToFile()
         voiceManager.startListening { transcribedText ->
             if (isRecordingAudio.value && transcribedText.isNotBlank()) {
                 val dur = maxOf(1, recordingDurationSeconds.value)
                 isRecordingAudio.value = false
                 recordingTimerJob?.cancel()
+                val audioPath = stopAudioRecordingToFile()
                 sendChatMessage(
                     overridePrompt = transcribedText,
                     isVoiceNote = true,
-                    voiceDurationSeconds = dur
+                    voiceDurationSeconds = dur,
+                    voiceAudioFilePath = audioPath
                 )
             }
         }
@@ -728,13 +792,15 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         val dur = maxOf(1, recordingDurationSeconds.value)
         isRecordingAudio.value = false
         recordingTimerJob?.cancel()
+        val audioPath = stopAudioRecordingToFile()
         val currentRecognized = voiceManager.recognizedText.value.trim()
         voiceManager.stopListening()
-        val textToSend = if (currentRecognized.isNotBlank()) currentRecognized else "Voice note explanation request"
+        val textToSend = if (currentRecognized.isNotBlank()) currentRecognized else "Voice note (Tap to play)"
         sendChatMessage(
             overridePrompt = textToSend,
             isVoiceNote = true,
-            voiceDurationSeconds = dur
+            voiceDurationSeconds = dur,
+            voiceAudioFilePath = audioPath
         )
     }
 
@@ -742,41 +808,102 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         isRecordingAudio.value = false
         recordingTimerJob?.cancel()
         recordingDurationSeconds.value = 0
+        try {
+            voiceNoteRecorder?.apply {
+                stop()
+                release()
+            }
+        } catch (_: Exception) {}
+        try {
+            currentRecordedAudioFile?.delete()
+        } catch (_: Exception) {}
+        voiceNoteRecorder = null
+        currentRecordedAudioFile = null
         voiceManager.stopListening()
     }
 
     fun stopVoiceInput() {
-        isRecordingAudio.value = false
-        recordingTimerJob?.cancel()
-        recordingDurationSeconds.value = 0
-        voiceManager.stopListening()
+        cancelHoldRecording()
     }
 
     fun togglePlayVoiceNote(messageId: String, text: String) {
         if (currentlyPlayingVoiceNoteId.value == messageId) {
-            currentlyPlayingVoiceNoteId.value = null
-            voiceManager.stopSpeaking()
+            stopAllVoicePlayback()
         } else {
-            currentlyPlayingVoiceNoteId.value = messageId
-            voiceManager.speak(text)
-            viewModelScope.launch {
-                while (voiceManager.isSpeaking.value) {
-                    kotlinx.coroutines.delay(200)
+            stopAllVoicePlayback()
+            val msg = tutorState.value.messages.find { it.id == messageId }
+            val audioPath = msg?.voiceAudioFilePath
+            val audioFile = if (audioPath != null) java.io.File(audioPath) else null
+
+            if (audioFile != null && audioFile.exists() && audioFile.length() > 0) {
+                // Play student's recorded voice note via MediaPlayer
+                currentlyPlayingVoiceNoteId.value = messageId
+                try {
+                    val player = android.media.MediaPlayer().apply {
+                        setDataSource(audioFile.absolutePath)
+                        prepare()
+                        setOnCompletionListener {
+                            currentlyPlayingVoiceNoteId.value = null
+                            it.release()
+                            voiceNoteMediaPlayer = null
+                        }
+                        setOnErrorListener { _, _, _ ->
+                            currentlyPlayingVoiceNoteId.value = null
+                            voiceNoteMediaPlayer = null
+                            false
+                        }
+                        start()
+                    }
+                    voiceNoteMediaPlayer = player
+                } catch (e: Exception) {
+                    android.util.Log.e("StudyBuddyVoice", "Error playing recorded audio: ${e.message}")
+                    try {
+                        voiceNoteMediaPlayer?.release()
+                    } catch (_: Exception) {}
+                    voiceNoteMediaPlayer = null
+                    playViaTts(messageId, text)
                 }
-                if (currentlyPlayingVoiceNoteId.value == messageId) {
-                    currentlyPlayingVoiceNoteId.value = null
-                }
+            } else {
+                // Play AI voice or TTS
+                playViaTts(messageId, text)
             }
         }
     }
 
+    private fun playViaTts(messageId: String, text: String) {
+        currentlyPlayingVoiceNoteId.value = messageId
+        val clean = GeminiClient.cleanForSpeech(text)
+        voiceManager.speak(clean)
+        viewModelScope.launch {
+            while (voiceManager.isSpeaking.value) {
+                kotlinx.coroutines.delay(200)
+            }
+            if (currentlyPlayingVoiceNoteId.value == messageId) {
+                currentlyPlayingVoiceNoteId.value = null
+            }
+        }
+    }
+
+    fun stopAllVoicePlayback() {
+        currentlyPlayingVoiceNoteId.value = null
+        try {
+            voiceNoteMediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+        } catch (_: Exception) {}
+        voiceNoteMediaPlayer = null
+        voiceManager.stopSpeaking()
+    }
+
     fun playExplanation(text: String) {
+        stopAllVoicePlayback()
         val clean = GeminiClient.cleanForSpeech(text)
         voiceManager.speak(clean)
     }
 
     fun stopExplanationVoice() {
-        voiceManager.stopSpeaking()
+        stopAllVoicePlayback()
     }
 
     // --- Homework Scanner ---
@@ -1026,6 +1153,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         super.onCleared()
+        stopAllVoicePlayback()
+        try {
+            voiceNoteRecorder?.release()
+        } catch (_: Exception) {}
+        voiceNoteRecorder = null
         voiceManager.shutdown()
     }
 
@@ -1480,7 +1612,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     topic = curr.config.topic,
                     difficulty = curr.config.difficulty,
                     count = curr.config.questionCount
-                )
+                ).shuffled()
             } else {
                 WaecJambQuestionBank.getMultiSubjectQuestions(
                     examType = curr.config.examType,
@@ -1489,11 +1621,14 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     yearStart = curr.config.yearStart,
                     yearEnd = curr.config.yearEnd,
                     difficulty = curr.config.difficulty,
-                    totalCount = curr.config.questionCount
+                    questionsPerSubject = curr.config.questionCount,
+                    shuffle = true
                 )
             }
 
-            val timedSec = curr.config.timedMinutes * 60
+            // Standard CBT examination timing: 1.25 minutes per question for realistic exam pressure
+            val calculatedMinutes = maxOf(curr.config.timedMinutes, (questions.size * 1.25).toInt())
+            val timedSec = calculatedMinutes * 60
             waecJambState.value = curr.copy(
                 stage = ExamScreenStage.ACTIVE_EXAM,
                 questions = questions,
@@ -1588,7 +1723,10 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun retakeWaecJambExam() {
         examTimerJob?.cancel()
         val curr = waecJambState.value
-        val resetQuestions = curr.questions.map { it.copy(userSelectedIndex = null, isFlagged = false) }
+        val resetQuestions = curr.questions
+            .groupBy { it.subject }
+            .flatMap { (_, qs) -> qs.shuffled() }
+            .map { it.copy(userSelectedIndex = null, isFlagged = false) }
         val timedSec = curr.config.timedMinutes * 60
         waecJambState.value = curr.copy(
             stage = ExamScreenStage.ACTIVE_EXAM,

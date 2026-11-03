@@ -124,6 +124,8 @@ fun AssignmentHelperScreen(
     onHoldStartRecording: () -> Unit = {},
     onHoldFinishRecording: () -> Unit = {},
     onHoldCancelRecording: () -> Unit = {},
+    onGenerateFile: (String, String) -> Unit = { _, _ -> },
+    onGenerateImage: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -414,7 +416,9 @@ fun AssignmentHelperScreen(
                                 onSpeak = { onPlayAnswer(msg.text) },
                                 onStopSpeak = onStopAnswerVoice,
                                 onLike = { liked -> onLikeMessage(msg.id, liked) },
-                                onQuickReply = { onSendChatMessage(it) }
+                                onQuickReply = { onSendChatMessage(it) },
+                                onGenerateFile = { ext -> onGenerateFile(msg.id, ext) },
+                                onGenerateImage = { onGenerateImage(msg.id) }
                             )
                         }
 

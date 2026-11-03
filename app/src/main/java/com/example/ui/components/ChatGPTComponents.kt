@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -53,10 +54,22 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.TableChart
+import coil.compose.AsyncImage
+import com.example.util.FileCategory
+import com.example.util.GeneratedFileInfo
+import com.example.util.UniversalFileGenerator
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -1004,6 +1017,8 @@ fun ChatGptMessageItem(
     onStopSpeak: () -> Unit,
     onLike: (Boolean) -> Unit,
     onQuickReply: ((String) -> Unit)? = null,
+    onGenerateFile: ((String) -> Unit)? = null,
+    onGenerateImage: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1017,9 +1032,6 @@ fun ChatGptMessageItem(
             horizontalArrangement = Arrangement.End
         ) {
             if (message.isVoiceNote) {
-                // Stadium capsule matching user reference image:
-                // Black background, white border, left circular ring with play/stop,
-                // center white waveform bars, right duration like "0:05"
                 Column(horizontalAlignment = Alignment.End) {
                     VoiceNoteCapsule(
                         isPlaying = isPlayingVoiceNote,
@@ -1091,6 +1103,25 @@ fun ChatGptMessageItem(
                 text = message.text
             )
 
+            // AI Generated Educational Concept Diagram (if requested)
+            if (message.generatedAiImageUrl != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                EducationalDiagramAttachment(
+                    imageUrl = message.generatedAiImageUrl
+                )
+            }
+
+            // Universal Downloadable File Attachment Card (if requested)
+            if (message.generatedFile != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                UniversalFileAttachmentCard(
+                    fileInfo = message.generatedFile,
+                    onDownload = { UniversalFileGenerator.saveToDownloads(context, message.generatedFile) },
+                    onOpen = { UniversalFileGenerator.openFile(context, message.generatedFile) },
+                    onShare = { UniversalFileGenerator.shareFile(context, message.generatedFile) }
+                )
+            }
+
             // Quick Study Track Selector if tutor asks at the end: WAEC, JAMB, or just learning
             if (message.text.contains("Are you studying for WAEC, JAMB, or just learning", ignoreCase = true)) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -1151,7 +1182,7 @@ fun ChatGptMessageItem(
                 }
             }
 
-            // Action Icons Row matching Screenshot 3:
+            // Action Icons Row:
             // [📋 Copy] [👍 Like] [👎 Dislike] [🔊 Volume / Speak] [🔗 Share] [⋮ More]
             Spacer(modifier = Modifier.height(14.dp))
             Row(
@@ -1239,24 +1270,294 @@ fun ChatGptMessageItem(
                         modifier = Modifier.background(ChatGptDrawerBg)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Copy Full Text", color = PureWhite) },
+                            text = { Text("Export as PDF (.pdf)", color = PureWhite) },
+                            leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 showMsgMenu = false
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Study Buddy", message.text))
-                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                onGenerateFile?.invoke("pdf")
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Read Aloud", color = PureWhite) },
+                            text = { Text("Export as Word (.docx)", color = PureWhite) },
+                            leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 showMsgMenu = false
-                                onSpeak()
+                                onGenerateFile?.invoke("docx")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as Excel (.xlsx)", color = PureWhite) },
+                            leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showMsgMenu = false
+                                onGenerateFile?.invoke("xlsx")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as HTML (.html)", color = PureWhite) },
+                            leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showMsgMenu = false
+                                onGenerateFile?.invoke("html")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Generate AI Diagram", color = PureWhite) },
+                            leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = ChatGptPlusStarBlue, modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showMsgMenu = false
+                                onGenerateImage?.invoke()
                             }
                         )
                     }
                 }
             }
+
+            // EXACTLY THREE SMART FOLLOW-UP SUGGESTIONS (Clean, minimal, text-based)
+            if (message.followUpSuggestions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    message.followUpSuggestions.take(3).forEach { suggestion ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onQuickReply?.invoke(suggestion) }
+                                .padding(vertical = 5.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Reply,
+                                contentDescription = null,
+                                tint = Color(0xFF888888),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = suggestion,
+                                color = Color(0xFFD4D4D4),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Universal Downloadable File Attachment Card inside Chat
+ */
+@Composable
+fun UniversalFileAttachmentCard(
+    fileInfo: GeneratedFileInfo,
+    onDownload: () -> Unit,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (iconBgColor, fileIcon) = when (fileInfo.extension.lowercase(Locale.US)) {
+        "pdf" -> Color(0xFFEF4444) to Icons.Default.PictureAsPdf
+        "docx", "doc" -> Color(0xFF2563EB) to Icons.Outlined.Description
+        "xlsx", "xls", "csv" -> Color(0xFF10B981) to Icons.Default.TableChart
+        "pptx", "ppt" -> Color(0xFFF97316) to Icons.Default.Slideshow
+        "html", "py", "java", "js", "ts", "json", "sql" -> Color(0xFF8B5CF6) to Icons.Default.Code
+        "zip" -> Color(0xFFF59E0B) to Icons.Default.FolderZip
+        else -> Color(0xFF6B7280) to Icons.Outlined.Description
+    }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF161616),
+        border = BorderStroke(1.dp, Color(0xFF333333)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // File Type Icon Box
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconBgColor.copy(alpha = 0.2f))
+                        .border(1.dp, iconBgColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = fileIcon,
+                        contentDescription = null,
+                        tint = iconBgColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // File Details
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = fileInfo.fileName,
+                        color = PureWhite,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${fileInfo.extension.uppercase()} ${fileInfo.category.label} • ${fileInfo.formattedSize}",
+                        color = TextMutedGray,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Buttons Row: [Download] [Open] [Share]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Download Button (Primary)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = PureWhite,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onDownload() }
+                        .testTag("download_file_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Download",
+                            tint = TrueBlack,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Download",
+                            color = TrueBlack,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Open with External App Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = TrueBlack,
+                    border = BorderStroke(1.dp, Color(0xFF444444)),
+                    modifier = Modifier
+                        .clickable { onOpen() }
+                        .testTag("open_file_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = "Open",
+                            tint = PureWhite,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Open",
+                            color = PureWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // Share Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = TrueBlack,
+                    border = BorderStroke(1.dp, Color(0xFF444444)),
+                    modifier = Modifier
+                        .clickable { onShare() }
+                        .testTag("share_file_button")
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = PureWhite,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * AI Concept Diagram Attachment Card inside Chat
+ */
+@Composable
+fun EducationalDiagramAttachment(
+    imageUrl: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF141414),
+        border = BorderStroke(1.dp, Color(0xFF2C2C2C)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = ChatGptPlusStarBlue,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "AI Visual Concept Diagram",
+                    color = PureWhite,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = "Generated educational diagram",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 160.dp, max = 260.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(TrueBlack),
+                contentScale = ContentScale.Fit
+            )
         }
     }
 }
@@ -1305,6 +1606,9 @@ fun formatInlineMath(text: String): String {
     )
     for ((tex, sym) in standaloneLatexSyms) {
         result = result.replace(tex, sym)
+    }
+    if (result.contains("\\frac{") || result.contains("\\sqrt{") || result.contains("^{") || result.contains("_{")) {
+        result = MathRenderer.formatLatexToReadableMath(result)
     }
     return result
 }
@@ -1542,7 +1846,29 @@ private fun RenderNonCodeBlocks(rawText: String) {
             continue
         }
 
-        // 5. Headings, numbered list items, answers, regular paragraphs
+        // 5. Headings: #, ##, ###, ####, #####, ###### (Never display raw # signs!)
+        val headingMatch = Regex("""^(#{1,6})\s*(.*)$""").find(line)
+        if (headingMatch != null) {
+            val level = headingMatch.groupValues[1].length
+            val headingText = headingMatch.groupValues[2].trim()
+            val (fontSize, topPad) = when (level) {
+                1 -> 20.sp to 14.dp
+                2 -> 18.sp to 10.dp
+                3 -> 16.sp to 8.dp
+                else -> 15.sp to 6.dp
+            }
+            Text(
+                text = buildFormattedText(headingText),
+                color = PureWhite,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = topPad, bottom = 4.dp)
+            )
+            i++
+            continue
+        }
+
+        // 6. Numbered list items, bold titles, answers, regular paragraphs
         val isHeading = line.startsWith("**") && line.endsWith("**") && line.length > 4 && !line.contains("→")
         val isNumberedList = Regex("""^\d+\.\s+""").containsMatchIn(line)
         val isAnswer = line.startsWith("Answer:", ignoreCase = true) || line.startsWith("**Answer:", ignoreCase = true) || line.startsWith("Final Answer:", ignoreCase = true)
@@ -1585,17 +1911,63 @@ private fun RenderNonCodeBlocks(rawText: String) {
     }
 }
 
+fun cleanMarkdownArtifacts(raw: String): String {
+    var s = raw
+    // 1. Strip raw HTML tags
+    s = s.replace(Regex("""<(details|summary|b|i|u|br|p|span|div)[^>]*>|</(details|summary|b|i|u|br|p|span|div)>""", RegexOption.IGNORE_CASE), " ")
+    // 2. Strip leading heading markers like ### or ##
+    s = s.replace(Regex("""^#{1,6}\s*"""), "")
+    // 3. Remove stray triple and double hashes inside text
+    s = s.replace("###", "")
+    s = s.replace("##", "")
+    // 4. Strip template syntax
+    s = s.replace(Regex("""\$\{.*?\}|\{\{.*?\}\}"""), "")
+    return s.trim()
+}
+
 fun buildFormattedText(text: String): AnnotatedString {
-    val mathProcessed = formatInlineMath(text)
+    val cleaned = cleanMarkdownArtifacts(text)
+    val mathProcessed = formatInlineMath(cleaned)
     return buildAnnotatedString {
-        val parts = mathProcessed.split("**")
-        parts.forEachIndexed { index, part ->
-            if (index % 2 == 1) {
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = PureWhite)) {
-                    append(part)
+        // Handle inline monospace code `code`
+        val codeParts = mathProcessed.split("`")
+        codeParts.forEachIndexed { cIdx, codePart ->
+            if (cIdx % 2 == 1) {
+                withStyle(
+                    SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF67E8F9),
+                        background = Color(0xFF1E222C)
+                    )
+                ) {
+                    append(" $codePart ")
                 }
             } else {
-                append(part)
+                // Handle bold **bold**
+                val boldParts = codePart.split("**")
+                boldParts.forEachIndexed { bIdx, boldPart ->
+                    if (bIdx % 2 == 1) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = PureWhite)) {
+                            append(boldPart)
+                        }
+                    } else {
+                        // Handle italic *italic*
+                        val italicParts = boldPart.split(Regex("(?<=\\s|^)\\*|\\*(?=\\s|$)"))
+                        if (italicParts.size > 1) {
+                            italicParts.forEachIndexed { iIdx, itPart ->
+                                if (iIdx % 2 == 1) {
+                                    withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = PureWhite)) {
+                                        append(itPart)
+                                    }
+                                } else {
+                                    append(itPart)
+                                }
+                            }
+                        } else {
+                            append(boldPart)
+                        }
+                    }
+                }
             }
         }
     }

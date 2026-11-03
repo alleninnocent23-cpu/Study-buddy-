@@ -1,0 +1,74 @@
+name: Build StudyBuddy APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Restore or Generate Debug Keystore
+        shell: bash
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkeypair -noprompt \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          cp debug.keystore app/debug.keystore 2>/dev/null || true
+
+      - name: Ensure google-services.json exists
+        shell: bash
+        run: |
+          if [ ! -f "app/google-services.json" ]; then
+            mkdir -p app
+            echo '{"project_info":{"project_number":"1234567890","project_id":"studybuddy-cbt","storage_bucket":"studybuddy.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:studybuddy","android_client_info":{"package_name":"com.example"}},"oauth_client":[],"api_key":[{"current_key":"mock_key"}],"services":{"analytics_service":{"status":1}}}]}' > app/google-services.json
+          fi
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          gradle assembleDebug --stacktrace
+
+      - name: Upload StudyBuddy APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudyBuddy-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
