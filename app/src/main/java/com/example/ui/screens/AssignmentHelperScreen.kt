@@ -19,6 +19,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
@@ -238,11 +241,16 @@ fun AssignmentHelperScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
+                    .widthIn(max = 440.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .border(1.dp, BorderLight, RoundedCornerShape(16.dp)),
                 color = DarkSurface
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -375,38 +383,57 @@ fun AssignmentHelperScreen(
             // Middle Content Area
             if (state.messages.isEmpty()) {
                 // Screenshot 1: Blank OLED Canvas with suggestion rows at the bottom
-                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 840.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                SubjectPersonalizationBadge(
-                    selectedSubject = state.selectedSubject,
-                    onOpenSelector = { showSubjectFilterDialog = true },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
+                        SubjectPersonalizationBadge(
+                            selectedSubject = state.selectedSubject,
+                            onOpenSelector = { showSubjectFilterDialog = true },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
 
-                Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.weight(1f))
 
-                ChatGptEmptyPrompts(
-                    onCreateImage = {
-                        onSendChatMessage("Generate an educational concept diagram for my STEM notes")
-                    },
-                    onWriteEdit = {
-                        onSendChatMessage("Help me write and edit a strong 5-paragraph essay outline")
-                    },
-                    onScanHomework = onScanHomeworkShortcut,
-                    onQuizMe = onQuizShortcut,
-                    onPomodoroFocus = onPomodoroShortcut
-                )
+                        ChatGptEmptyPrompts(
+                            onCreateImage = {
+                                onSendChatMessage("Generate an educational concept diagram for my STEM notes")
+                            },
+                            onWriteEdit = {
+                                onSendChatMessage("Help me write and edit a strong 5-paragraph essay outline")
+                            },
+                            onScanHomework = onScanHomeworkShortcut,
+                            onQuizMe = onQuizShortcut,
+                            onPomodoroFocus = onPomodoroShortcut
+                        )
+                    }
+                }
             } else {
                 // Screenshot 2: Message stream with user bubble and assistant answer with action icons
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 840.dp)
                     ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
                         items(state.messages, key = { it.id }) { msg ->
                             ChatGptMessageItem(
                                 message = msg,
@@ -523,8 +550,16 @@ fun AssignmentHelperScreen(
                     }
                 }
             }
+        }
 
-            // Fixed Bottom Input Bar (matching both screenshots)
+        // Fixed Bottom Input Bar (matching both screenshots)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+        ) {
             ChatGptInputBar(
                 text = state.topicInput,
                 onTextChange = onTopicChange,
@@ -575,10 +610,11 @@ fun AssignmentHelperScreen(
                 isListening = isListening,
                 isLoading = state.isLoading,
                 modifier = Modifier
-                    .imePadding()
-                    .navigationBarsPadding()
+                    .fillMaxWidth()
+                    .widthIn(max = 840.dp)
             )
         }
+    }
 
         // Floating Scroll to Bottom Button matching Screenshot 2
         val showScrollToBottom by remember {

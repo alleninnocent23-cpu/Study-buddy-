@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -166,9 +167,14 @@ fun WaecJambScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TrueBlack)
+            .background(TrueBlack),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 840.dp)
+        ) {
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -2099,7 +2105,7 @@ private fun ActiveExamView(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .heightIn(min = 48.dp)
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -2121,7 +2127,7 @@ private fun ActiveExamView(
                 ),
                 modifier = Modifier
                     .weight(1.3f)
-                    .height(44.dp)
+                    .heightIn(min = 48.dp)
                     .testTag("submit_exam_button")
             ) {
                 Icon(Icons.Default.Check, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
@@ -2176,7 +2182,7 @@ private fun ActiveExamView(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .heightIn(min = 48.dp)
                     .testTag("next_exam_question_button")
             ) {
                 Text(

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -114,13 +115,19 @@ fun HomeworkScannerScreen(
         bitmap?.let { onImageSelected(it) }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TrueBlack)
-            .verticalScroll(scrollState)
-            .padding(16.dp)
+            .background(TrueBlack),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 840.dp)
+                .verticalScroll(scrollState)
+                .padding(16.dp)
+        ) {
         // Title
         Row(
             modifier = Modifier.fillMaxWidth(),

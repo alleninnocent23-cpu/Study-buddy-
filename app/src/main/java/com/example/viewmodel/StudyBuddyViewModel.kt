@@ -15,6 +15,16 @@ import com.example.data.local.QuizEntity
 import com.example.data.local.StudyBuddyDatabase
 import com.example.data.local.StudySessionEntity
 import com.example.data.local.UserEntity
+import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.net.Uri
+import android.os.Environment
+import android.widget.Toast
+import com.example.data.api.OnlineImageSearchService
+import com.example.data.model.WebSearchResultImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import com.example.util.GeneratedFileInfo
 import com.example.util.SmartSuggestionGenerator
 import com.example.util.UniversalFileGenerator
@@ -99,7 +109,9 @@ data class ChatMessage(
     val voiceAudioFilePath: String? = null,
     val generatedFile: com.example.util.GeneratedFileInfo? = null,
     val followUpSuggestions: List<String> = emptyList(),
-    val generatedAiImageUrl: String? = null
+    val generatedAiImageUrl: String? = null,
+    val searchImages: List<WebSearchResultImage> = emptyList(),
+    val isSearchingImages: Boolean = false
 )
 
 data class AuthState(
@@ -506,11 +518,20 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 (if (it.sender == MessageSender.USER) "user" else "model") to it.text
             }
             val fileRequest = UniversalFileGenerator.detectFileRequest(promptText)
-            val isImageRequest = promptText.contains("diagram", ignoreCase = true) ||
-                    promptText.contains("image", ignoreCase = true) ||
-                    promptText.contains("picture", ignoreCase = true) ||
-                    promptText.contains("draw", ignoreCase = true) ||
-                    promptText.contains("illustrate", ignoreCase = true)
+            val isExplicitAiImageRequest = OnlineImageSearchService.isExplicitAiImageGenerationRequest(promptText)
+            val isWebImageRequest = OnlineImageSearchService.isWebImageSearchRequest(promptText) ||
+                    OnlineImageSearchService.isEducationalDiagramBeneficial(promptText, state.selectedSubject)
+
+            // Asynchronously launch real-time online web image search if requested or beneficial
+            val webImagesDeferred = if (isWebImageRequest && !isExplicitAiImageRequest) {
+                async(Dispatchers.IO) {
+                    OnlineImageSearchService.searchImages(
+                        rawQuery = promptText,
+                        maxResults = 6,
+                        subject = state.selectedSubject
+                    ).getOrDefault(emptyList())
+                }
+            } else null
 
             val result = if (image != null) {
                 GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
@@ -521,6 +542,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             result.onSuccess { explanation ->
                 val cleanedText = SmartSuggestionGenerator.cleanResponseText(explanation.explanationText)
                 val suggestions = SmartSuggestionGenerator.getFollowUpSuggestions(promptText, explanation.explanationText, state.selectedSubject)
+                val webImages = webImagesDeferred?.await() ?: emptyList()
 
                 // Generate real file if requested
                 val generatedFile = if (fileRequest != null) {
@@ -537,8 +559,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } else null
 
-                // Generate educational AI image if requested
-                val generatedAiImageUrl = if (isImageRequest) {
+                // Generate educational AI image ONLY if user explicitly asked to create/draw a new AI image
+                val generatedAiImageUrl = if (isExplicitAiImageRequest) {
                     try {
                         GeminiClient.generateEducationalImage(
                             prompt = promptText,
@@ -557,7 +579,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     diagramTitle = explanation.diagramTitle,
                     generatedFile = generatedFile,
                     followUpSuggestions = suggestions,
-                    generatedAiImageUrl = generatedAiImageUrl
+                    generatedAiImageUrl = generatedAiImageUrl,
+                    searchImages = webImages
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
@@ -588,6 +611,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 val fallback = getCuratedExplanation(promptText, state.selectedSubject)
                 val cleanedText = SmartSuggestionGenerator.cleanResponseText(fallback.explanationText)
                 val suggestions = SmartSuggestionGenerator.getFollowUpSuggestions(promptText, fallback.explanationText, state.selectedSubject)
+                val webImages = webImagesDeferred?.await() ?: emptyList()
 
                 val generatedFile = if (fileRequest != null) {
                     try {
@@ -603,7 +627,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } else null
 
-                val generatedAiImageUrl = if (isImageRequest) {
+                val generatedAiImageUrl = if (isExplicitAiImageRequest) {
                     try {
                         GeminiClient.generateEducationalImage(
                             prompt = promptText,
@@ -622,7 +646,8 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     diagramTitle = fallback.diagramTitle,
                     generatedFile = generatedFile,
                     followUpSuggestions = suggestions,
-                    generatedAiImageUrl = generatedAiImageUrl
+                    generatedAiImageUrl = generatedAiImageUrl,
+                    searchImages = webImages
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
@@ -636,6 +661,68 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     voiceManager.speak(cleanedText)
                 }
             }
+        }
+    }
+
+    fun downloadWebImage(image: WebSearchResultImage) {
+        val context = getApplication<Application>()
+        try {
+            val extension = when {
+                image.originalUrl.endsWith(".png", ignoreCase = true) -> "png"
+                image.originalUrl.endsWith(".webp", ignoreCase = true) -> "webp"
+                image.originalUrl.endsWith(".svg", ignoreCase = true) -> "svg"
+                else -> "jpg"
+            }
+            val safeFileName = "StudyBuddy_" + image.title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(30) + "." + extension
+            val request = DownloadManager.Request(Uri.parse(image.originalUrl))
+                .setTitle(image.title)
+                .setDescription("Downloading image from ${image.sourceWebsite}")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeFileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            Toast.makeText(context, "Downloading image to Downloads folder...", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun copyImageLink(imageUrl: String) {
+        val context = getApplication<Application>()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Image Link", imageUrl)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Image link copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
+
+    fun retryWebImageSearchForMessage(messageId: String, query: String) {
+        viewModelScope.launch {
+            val currentMessages = tutorState.value.messages
+            val index = currentMessages.indexOfFirst { it.id == messageId }
+            if (index == -1) return@launch
+
+            val msg = currentMessages[index]
+            val loadingMsg = msg.copy(isSearchingImages = true)
+            val updated = currentMessages.toMutableList()
+            updated[index] = loadingMsg
+            tutorState.value = tutorState.value.copy(messages = updated)
+
+            val results = OnlineImageSearchService.searchImages(
+                rawQuery = query,
+                maxResults = 6,
+                subject = tutorState.value.selectedSubject
+            ).getOrDefault(emptyList())
+
+            val finalMsg = msg.copy(
+                searchImages = results,
+                isSearchingImages = false
+            )
+            val finalUpdated = tutorState.value.messages.toMutableList()
+            finalUpdated[index] = finalMsg
+            tutorState.value = tutorState.value.copy(messages = finalUpdated)
         }
     }
 

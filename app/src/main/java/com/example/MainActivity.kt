@@ -226,7 +226,8 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
             ModalDrawerSheet(
                 drawerContainerColor = ChatGptDrawerBg,
                 modifier = Modifier
-                    .width(310.dp)
+                    .widthIn(max = 300.dp)
+                    .fillMaxWidth(0.82f)
                     .fillMaxHeight()
             ) {
                 Column(

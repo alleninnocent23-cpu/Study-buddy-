@@ -24,6 +24,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.input.pointer.pointerInput
 import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
@@ -161,13 +163,19 @@ fun ChatGptTopBar(
 ) {
     var showMenuOverflow by remember { mutableStateOf(false) }
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .statusBarsPadding(),
+        contentAlignment = Alignment.Center
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 840.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         // Left 2-bar menu button
         TwoBarMenuButton(
             onClick = onMenuClick,
@@ -280,6 +288,7 @@ fun ChatGptTopBar(
             }
         }
     }
+}
 }
 
 /**
@@ -2013,13 +2022,19 @@ fun VoiceModeDialog(
             modifier = Modifier.fillMaxSize(),
             color = TrueBlack
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 600.dp)
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                 // Header with close X
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2195,6 +2210,7 @@ fun VoiceModeDialog(
         }
     }
 }
+}
 
 /**
  * Sleek "Get Plus" Modal matching the ChatGPT subscription design
@@ -2207,11 +2223,16 @@ fun GetPlusDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
+                .widthIn(max = 480.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .border(1.dp, ChatGptPillDark, RoundedCornerShape(20.dp)),
             color = DarkSurface
         ) {
-            Column(modifier = Modifier.padding(22.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(22.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
