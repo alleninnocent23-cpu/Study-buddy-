@@ -523,7 +523,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     OnlineImageSearchService.isEducationalDiagramBeneficial(promptText, state.selectedSubject)
 
             // Asynchronously launch real-time online web image search if requested or beneficial
-            val webImagesDeferred = if (isWebImageRequest && !isExplicitAiImageRequest) {
+            val webImagesDeferred: kotlinx.coroutines.Deferred<List<com.example.data.model.WebSearchResultImage>>? = if (isWebImageRequest && !isExplicitAiImageRequest) {
                 async(Dispatchers.IO) {
                     OnlineImageSearchService.searchImages(
                         rawQuery = promptText,

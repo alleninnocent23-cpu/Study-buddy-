@@ -129,6 +129,9 @@ fun AssignmentHelperScreen(
     onHoldCancelRecording: () -> Unit = {},
     onGenerateFile: (String, String) -> Unit = { _, _ -> },
     onGenerateImage: (String) -> Unit = {},
+    onDownloadWebImage: (com.example.data.model.WebSearchResultImage) -> Unit = {},
+    onCopyImageLink: (String) -> Unit = {},
+    onRetryImageSearch: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -445,7 +448,10 @@ fun AssignmentHelperScreen(
                                 onLike = { liked -> onLikeMessage(msg.id, liked) },
                                 onQuickReply = { onSendChatMessage(it) },
                                 onGenerateFile = { ext -> onGenerateFile(msg.id, ext) },
-                                onGenerateImage = { onGenerateImage(msg.id) }
+                                onGenerateImage = { onGenerateImage(msg.id) },
+                                onDownloadWebImage = { img -> onDownloadWebImage(img) },
+                                onCopyImageLink = { url -> onCopyImageLink(url) },
+                                onRetryImageSearch = { query -> onRetryImageSearch(query) }
                             )
                         }
 

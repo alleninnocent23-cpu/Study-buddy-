@@ -69,9 +69,17 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.TableChart
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import com.example.data.model.WebSearchResultImage
 import com.example.util.FileCategory
 import com.example.util.GeneratedFileInfo
 import com.example.util.UniversalFileGenerator
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -1028,9 +1036,26 @@ fun ChatGptMessageItem(
     onQuickReply: ((String) -> Unit)? = null,
     onGenerateFile: ((String) -> Unit)? = null,
     onGenerateImage: (() -> Unit)? = null,
+    onDownloadWebImage: ((WebSearchResultImage) -> Unit)? = null,
+    onCopyImageLink: ((String) -> Unit)? = null,
+    onRetryImageSearch: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var selectedFullscreenImage by remember { mutableStateOf<WebSearchResultImage?>(null) }
+
+    if (selectedFullscreenImage != null) {
+        FullscreenImageViewerDialog(
+            image = selectedFullscreenImage!!,
+            onDismiss = { selectedFullscreenImage = null },
+            onDownload = {
+                onDownloadWebImage?.invoke(selectedFullscreenImage!!)
+            },
+            onCopyLink = {
+                onCopyImageLink?.invoke(selectedFullscreenImage!!.originalUrl)
+            }
+        )
+    }
 
     if (message.sender == MessageSender.USER) {
         // User Message (Right Aligned Bubble / Voice Note Capsule)
@@ -1111,6 +1136,22 @@ fun ChatGptMessageItem(
             AssistantRichMessageContent(
                 text = message.text
             )
+
+            // Real-Time Web Image Search Gallery (diagrams, photos, illustrations)
+            if (message.searchImages.isNotEmpty() || message.isSearchingImages) {
+                Spacer(modifier = Modifier.height(12.dp))
+                WebImageGalleryView(
+                    images = message.searchImages,
+                    isLoading = message.isSearchingImages,
+                    onImageClick = { selectedFullscreenImage = it },
+                    onDownload = { img -> onDownloadWebImage?.invoke(img) },
+                    onCopyLink = { url -> onCopyImageLink?.invoke(url) },
+                    onRetry = {
+                        val queryFallback = message.text.lines().firstOrNull()?.take(40) ?: "diagram"
+                        onRetryImageSearch?.invoke(queryFallback)
+                    }
+                )
+            }
 
             // AI Generated Educational Concept Diagram (if requested)
             if (message.generatedAiImageUrl != null) {
@@ -2320,3 +2361,421 @@ fun GetPlusDialog(
         }
     }
 }
+
+/**
+ * Responsive Web Image Gallery displayed directly within StudyBuddy chat.
+ * Shows retrieved educational diagrams and real web images with attribution,
+ * source website, download, copy link, and fullscreen viewing.
+ */
+@Composable
+fun WebImageGalleryView(
+    images: List<WebSearchResultImage>,
+    isLoading: Boolean,
+    onImageClick: (WebSearchResultImage) -> Unit,
+    onDownload: (WebSearchResultImage) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF141414),
+        border = BorderStroke(1.dp, Color(0xFF262626)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            // Header: Category label + verified source
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = null,
+                    tint = ChatGptPlusStarBlue,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Web Images & Scientific Diagrams",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (images.isNotEmpty()) {
+                    Text(
+                        text = "${images.size} results",
+                        color = TextMutedGray,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (isLoading && images.isEmpty()) {
+                // Loading indicator while searching web
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        color = PureWhite,
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Searching verified educational sources...",
+                        color = TextMutedGray,
+                        fontSize = 12.sp
+                    )
+                }
+            } else if (images.isEmpty()) {
+                // No images found or error state with retry
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "No web diagrams found for this concept.",
+                        color = TextMutedGray,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onRetry,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Retry image search",
+                            tint = PureWhite,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            } else {
+                // Horizontal scrolling gallery of cards
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(images, key = { it.originalUrl + it.title }) { image ->
+                        WebImageCard(
+                            image = image,
+                            onClick = { onImageClick(image) },
+                            onDownload = { onDownload(image) },
+                            onCopyLink = { onCopyLink(image.originalUrl) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Individual Web Image Card inside the gallery:
+ * - High-resolution loaded thumbnail
+ * - Title and attribution
+ * - Source badge (e.g. Wikimedia Commons)
+ * - Tap to fullscreen
+ * - Download and copy link actions
+ */
+@Composable
+fun WebImageCard(
+    image: WebSearchResultImage,
+    onClick: () -> Unit,
+    onDownload: () -> Unit,
+    onCopyLink: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF1E1E1E),
+        border = BorderStroke(1.dp, Color(0xFF333333)),
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 240.dp)
+            .width(210.dp)
+            .clickable { onClick() }
+    ) {
+        Column {
+            // Image with Coil AsyncImage + placeholder / zoom button overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .background(Color(0xFF0D0D0D))
+            ) {
+                AsyncImage(
+                    model = image.thumbnailUrl,
+                    contentDescription = image.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+
+                // Zoom overlay button
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x99000000)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ZoomIn,
+                        contentDescription = "View full size",
+                        tint = PureWhite,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Source site badge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xCC000000))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = image.sourceWebsite,
+                        color = PureWhite,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Info and controls
+            Column(
+                modifier = Modifier.padding(10.dp)
+            ) {
+                Text(
+                    text = image.title,
+                    color = PureWhite,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                val authorText = image.author?.takeIf { it.isNotBlank() }
+                val licenseText = image.license?.takeIf { it.isNotBlank() } ?: "Open Access"
+                Text(
+                    text = if (authorText != null) "By $authorText" else licenseText,
+                    color = TextMutedGray,
+                    fontSize = 10.sp,
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Actions row: Download & Copy link
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Download icon button (min 48dp touch target)
+                    IconButton(
+                        onClick = onDownload,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Download image",
+                            tint = PureWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    // Copy link button
+                    IconButton(
+                        onClick = onCopyLink,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = "Copy image link",
+                            tint = PureWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fullscreen Image Viewer Dialog with zoomable display,
+ * complete attribution details, direct download button, and copy link option.
+ */
+@Composable
+fun FullscreenImageViewerDialog(
+    image: WebSearchResultImage,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+    onCopyLink: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = TrueBlack,
+            border = BorderStroke(1.dp, Color(0xFF333333)),
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .fillMaxWidth()
+                .padding(8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
+                // Header with title and close button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = image.title,
+                        color = PureWhite,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // High-resolution image preview
+                AsyncImage(
+                    model = image.originalUrl.ifBlank { image.thumbnailUrl },
+                    contentDescription = image.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 200.dp, max = 340.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0D0D0D)),
+                    contentScale = ContentScale.Fit
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Attribution & License info
+                val authorStr = image.author?.takeIf { it.isNotBlank() }
+                if (authorStr != null) {
+                    Text(
+                        text = "Author: $authorStr",
+                        color = PureWhite,
+                        fontSize = 11.sp
+                    )
+                }
+                val licenseStr = image.license?.takeIf { it.isNotBlank() } ?: "Educational / Creative Commons"
+                Text(
+                    text = "License: $licenseStr • Source: ${image.sourceWebsite}",
+                    color = TextMutedGray,
+                    fontSize = 11.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Action buttons: Download & Copy link
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = PureWhite,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clickable { onDownload() }
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = null,
+                                tint = TrueBlack,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Save Image",
+                                color = TrueBlack,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = TrueBlack,
+                        border = BorderStroke(1.dp, Color(0xFF444444)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clickable { onCopyLink() }
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = PureWhite,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Copy Link",
+                                color = PureWhite,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

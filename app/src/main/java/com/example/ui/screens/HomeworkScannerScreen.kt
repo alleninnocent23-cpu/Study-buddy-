@@ -477,4 +477,6 @@ fun HomeworkScannerScreen(
             }
         )
     }
+    }
 }
+

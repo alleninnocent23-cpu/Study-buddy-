@@ -147,13 +147,14 @@ fun WebImageSearchResultsGallery(
 
         // Gallery Items (LazyRow for smooth horizontal scrolling on mobile phones)
         if (images.size == 1) {
+            val single = images.first()
             SingleWebImageCard(
-                image = images.first(),
-                onOpenFullscreen = { selectedFullscreenImage = it },
-                onDownload = { onDownload(it) },
-                onCopyLink = { onCopyLink(it.originalUrl) },
+                image = single,
+                onOpenFullscreen = { selectedFullscreenImage = single },
+                onDownload = { onDownload(single) },
+                onCopyLink = { onCopyLink(single.originalUrl) },
                 onOpenSource = {
-                    val url = it.sourcePageUrl.ifBlank { it.originalUrl }
+                    val url = single.sourcePageUrl.ifBlank { single.originalUrl }
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }
             )
