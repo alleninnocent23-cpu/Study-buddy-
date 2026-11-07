@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.TableChart
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.WebSearchResultImage
 import com.example.util.FileCategory
 import com.example.util.GeneratedFileInfo
@@ -1598,8 +1599,15 @@ fun EducationalDiagramAttachment(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            val diagContext = androidx.compose.ui.platform.LocalContext.current
+            val diagModel = remember(imageUrl) {
+                ImageRequest.Builder(diagContext)
+                    .data(imageUrl)
+                    .crossfade(true)
+                    .build()
+            }
             AsyncImage(
-                model = imageUrl,
+                model = diagModel,
                 contentDescription = "Generated educational diagram",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1816,9 +1824,9 @@ private fun RenderNonCodeBlocks(rawText: String) {
         }
 
         // 1. Markdown Table Detection (e.g. for number-base conversions, comparisons, truth tables)
-        if (line.startsWith("|") && line.endsWith("|") && line.contains("|")) {
+        if (line.contains("|") && (line.startsWith("|") || line.endsWith("|") || (i + 1 < lines.size && lines[i + 1].contains("---")))) {
             val tableLines = mutableListOf<String>()
-            while (i < lines.size && lines[i].trim().startsWith("|") && lines[i].trim().contains("|")) {
+            while (i < lines.size && lines[i].trim().contains("|")) {
                 tableLines.add(lines[i].trim())
                 i++
             }
@@ -2517,8 +2525,17 @@ fun WebImageCard(
                     .height(130.dp)
                     .background(Color(0xFF0D0D0D))
             ) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val imageModel = remember(image.thumbnailUrl, image.originalUrl) {
+                    val targetUrl = image.thumbnailUrl.ifBlank { image.originalUrl }
+                    ImageRequest.Builder(context)
+                        .data(targetUrl)
+                        .crossfade(true)
+                        .setHeader("User-Agent", "StudyBuddy-EducationalApp/1.0 (Android; contact: educational-app@studybuddy.ng)")
+                        .build()
+                }
                 AsyncImage(
-                    model = image.thumbnailUrl,
+                    model = imageModel,
                     contentDescription = image.title,
                     modifier = Modifier
                         .fillMaxSize()
@@ -2681,8 +2698,17 @@ fun FullscreenImageViewerDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // High-resolution image preview
+                val dialogContext = androidx.compose.ui.platform.LocalContext.current
+                val fullImageModel = remember(image.originalUrl, image.thumbnailUrl) {
+                    val targetUrl = image.originalUrl.ifBlank { image.thumbnailUrl }
+                    ImageRequest.Builder(dialogContext)
+                        .data(targetUrl)
+                        .crossfade(true)
+                        .setHeader("User-Agent", "StudyBuddy-EducationalApp/1.0 (Android; contact: educational-app@studybuddy.ng)")
+                        .build()
+                }
                 AsyncImage(
-                    model = image.originalUrl.ifBlank { image.thumbnailUrl },
+                    model = fullImageModel,
                     contentDescription = image.title,
                     modifier = Modifier
                         .fillMaxWidth()

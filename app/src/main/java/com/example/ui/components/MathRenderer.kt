@@ -798,7 +798,10 @@ fun StepByStepProblemSolutionCard(
 }
 
 /**
- * Mathematical table view for number-base conversions, matrix displays, and truth tables.
+ * Mathematical and Educational Table View.
+ * Formats tabular data in ruled mode with distinct border lines (outer border, column dividers,
+ * header divider, and row dividers) for number-base conversions, science tables, comparisons,
+ * matrices, and truth tables.
  */
 @Composable
 fun MathTableView(
@@ -806,10 +809,17 @@ fun MathTableView(
     rows: List<List<String>>,
     modifier: Modifier = Modifier
 ) {
+    if (headers.isEmpty() && rows.isEmpty()) return
+
+    val tableBorderColor = Color(0xFF3F4450)
+    val headerBgColor = Color(0xFF1E232F)
+    val alternateRowColor = Color(0xFF161920)
+    val defaultRowColor = Color(0xFF101217)
+
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = DarkSurface,
-        border = BorderStroke(1.dp, BorderSubtle),
+        color = defaultRowColor,
+        border = BorderStroke(1.5.dp, tableBorderColor),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
@@ -818,50 +828,96 @@ fun MathTableView(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(10.dp)
         ) {
-            // Header Row
+            // 1. Header Row (Ruled with bold column dividers and strong bottom border)
             Row(
                 modifier = Modifier
-                    .background(Color(0xFF1B1E26), RoundedCornerShape(6.dp))
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    .background(headerBgColor)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                headers.forEach { h ->
-                    Text(
-                        text = MathRenderer.formatLatexToReadableMath(h),
-                        color = PureWhite,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.widthIn(min = 60.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Body Rows
-            rows.forEachIndexed { rowIndex, row ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp, horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    row.forEach { cell ->
+                headers.forEachIndexed { colIndex, headerText ->
+                    Box(
+                        modifier = Modifier
+                            .widthIn(min = 90.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = MathRenderer.formatLatexToReadableMath(cell),
+                            text = MathRenderer.formatLatexToReadableMath(headerText),
                             color = PureWhite,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Serif,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.widthIn(min = 60.dp)
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    // Vertical rule between header columns
+                    if (colIndex < headers.size - 1) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.5.dp)
+                                .height(38.dp)
+                                .background(tableBorderColor)
                         )
                     }
                 }
+            }
+
+            // Strong Horizontal Rule under Table Header
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(tableBorderColor)
+            )
+
+            // 2. Data Rows (Ruled with horizontal lines between rows and vertical lines between cells)
+            rows.forEachIndexed { rowIndex, row ->
+                val rowBg = if (rowIndex % 2 == 1) alternateRowColor else defaultRowColor
+                Row(
+                    modifier = Modifier
+                        .background(rowBg)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    headers.indices.forEach { colIndex ->
+                        val cellText = row.getOrNull(colIndex) ?: ""
+                        Box(
+                            modifier = Modifier
+                                .widthIn(min = 90.dp)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = MathRenderer.formatLatexToReadableMath(cellText),
+                                color = PureWhite,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Serif,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        // Vertical rule between columns
+                        if (colIndex < headers.size - 1) {
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(34.dp)
+                                    .background(tableBorderColor)
+                            )
+                        }
+                    }
+                }
+
+                // Horizontal rule between data rows
                 if (rowIndex < rows.size - 1) {
-                    HorizontalDivider(color = BorderSubtle, thickness = 0.5.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(tableBorderColor)
+                    )
                 }
             }
         }
