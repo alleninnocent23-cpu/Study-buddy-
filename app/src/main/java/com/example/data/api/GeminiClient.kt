@@ -532,6 +532,127 @@ object GeminiClient {
     }
 
     /**
+     * Transcribes an audio recording file (.m4a / AAC / MP3) and generates an educational explanation,
+     * returning both the transcribed text and the AI answer.
+     */
+    suspend fun transcribeAudioAndExplain(
+        audioFile: java.io.File,
+        subject: String,
+        gradeLevel: String
+    ): Result<Pair<String, ExplanationResult>> = withContext(Dispatchers.IO) {
+        if (!audioFile.exists() || audioFile.length() == 0L) {
+            return@withContext Result.failure(IllegalArgumentException("Audio file is empty or missing."))
+        }
+
+        val base64Audio = try {
+            val bytes = audioFile.readBytes()
+            Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            return@withContext Result.failure(e)
+        }
+
+        val fieldDirective = getFieldPersonalizationDirective(subject)
+        val prompt = """
+            You are StudyBuddy, an intelligent Nigerian AI tutor.
+            The student sent a recorded voice note with a question.
+            
+            1. Transcribe the student's spoken words accurately.
+            2. Answer the question thoroughly, clearly, and step-by-step.
+            3. If the user asks for a table, tabular form, or comparison, format it as a clean markdown table.
+            4. If mathematics or physics calculations are required, display step-by-step formulas cleanly.
+            
+            OUTPUT FORMAT:
+            Start your response with:
+            [TRANSCRIPTION: <exact transcribed text from the voice note>]
+            
+            Followed immediately by your comprehensive academic response.
+        """.trimIndent()
+
+        AiApiManager.executeWithFailover("transcribeAudioAndExplain") { keyEntry ->
+            val effectiveKey = if (keyEntry.provider == AiProviderType.GEMINI && keyEntry.key.isNotBlank()) {
+                keyEntry.key
+            } else {
+                getEffectiveApiKey()
+            }
+
+            if (effectiveKey.isBlank()) {
+                return@executeWithFailover Result.failure(
+                    IllegalStateException("No valid API key available for Audio Transcription. Please set a key in AI Studio Secrets.")
+                )
+            }
+
+            try {
+                val requestJson = JSONObject().apply {
+                    val contents = JSONArray().apply {
+                        put(JSONObject().apply {
+                            val parts = JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
+                                })
+                                put(JSONObject().apply {
+                                    put("inlineData", JSONObject().apply {
+                                        put("mimeType", "audio/mp4")
+                                        put("data", base64Audio)
+                                    })
+                                })
+                            }
+                            put("parts", parts)
+                        })
+                    }
+                    put("contents", contents)
+                }
+
+                val request = Request.Builder()
+                    .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
+                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+                val bodyString = response.body?.string() ?: ""
+
+                if (!response.isSuccessful) {
+                    val errorMsg = try {
+                        JSONObject(bodyString).getJSONObject("error").getString("message")
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}: ${response.message}"
+                    }
+                    return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
+                }
+
+                val jsonResponse = JSONObject(bodyString)
+                val fullText = jsonResponse.getJSONArray("candidates")
+                    .getJSONObject(0)
+                    .getJSONObject("content")
+                    .getJSONArray("parts")
+                    .getJSONObject(0)
+                    .getString("text")
+
+                // Extract [TRANSCRIPTION: ...]
+                val transRegex = Regex("\\[TRANSCRIPTION:\\s*([^\\]]+)\\]", RegexOption.IGNORE_CASE)
+                val transMatch = transRegex.find(fullText)
+                val transcription = transMatch?.groupValues?.get(1)?.trim() ?: "Voice Question"
+                var explanationText = if (transMatch != null) fullText.replace(transMatch.value, "").trim() else fullText
+
+                val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
+                val match = diagramRegex.find(explanationText)
+                var diagramType = "none"
+                var diagramTitle = ""
+                if (match != null) {
+                    diagramType = match.groupValues[1].lowercase()
+                    diagramTitle = match.groupValues[2].trim()
+                    explanationText = explanationText.replace(match.value, "").trim()
+                }
+
+                val cleaned = cleanAcademicText(explanationText)
+                Result.success(Pair(transcription, ExplanationResult(cleaned, diagramType, diagramTitle)))
+            } catch (e: Exception) {
+                Log.e(TAG, "Audio transcription failover error", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Generates an educational concept diagram URL (anatomy, circuits, geometry, graphs, chemistry).
      */
     suspend fun generateEducationalImage(

@@ -799,9 +799,8 @@ fun StepByStepProblemSolutionCard(
 
 /**
  * Mathematical and Educational Table View.
- * Formats tabular data in ruled mode with distinct border lines (outer border, column dividers,
- * header divider, and row dividers) for number-base conversions, science tables, comparisons,
- * matrices, and truth tables.
+ * Matches the reference notebook/spreadsheet format with clean white paper background,
+ * sharp ruled dark border gridlines, a distinct top header row, and left index/category column.
  */
 @Composable
 fun MathTableView(
@@ -811,25 +810,28 @@ fun MathTableView(
 ) {
     if (headers.isEmpty() && rows.isEmpty()) return
 
-    val tableBorderColor = Color(0xFF3F4450)
-    val headerBgColor = Color(0xFF1E232F)
-    val alternateRowColor = Color(0xFF161920)
-    val defaultRowColor = Color(0xFF101217)
+    // Clean ruled spreadsheet palette matching the user's reference diagram
+    val outerBorderColor = Color(0xFF6B7280) // Sturdy outer boundary
+    val gridLineColor = Color(0xFF9CA3AF)    // Crisp ruled cell dividers
+    val headerBgColor = Color(0xFFE5E7EB)    // Neutral light-gray header bar
+    val indexColBgColor = Color(0xFFF3F4F6)  // Leftmost category/index cell fill
+    val cellWhiteBg = Color(0xFFFFFFFF)      // Pure white paper cell fill
+    val darkTextColor = Color(0xFF111827)    // High-contrast readable black/charcoal text
 
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = defaultRowColor,
-        border = BorderStroke(1.5.dp, tableBorderColor),
+        shape = RoundedCornerShape(10.dp),
+        color = cellWhiteBg,
+        border = BorderStroke(2.dp, outerBorderColor),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 10.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
         ) {
-            // 1. Header Row (Ruled with bold column dividers and strong bottom border)
+            // 1. Top Header Row (Distinct gray header bar with dark grid dividers)
             Row(
                 modifier = Modifier
                     .background(headerBgColor)
@@ -839,26 +841,26 @@ fun MathTableView(
                 headers.forEachIndexed { colIndex, headerText ->
                     Box(
                         modifier = Modifier
-                            .widthIn(min = 90.dp)
+                            .widthIn(min = 96.dp)
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = MathRenderer.formatLatexToReadableMath(headerText),
-                            color = PureWhite,
+                            color = darkTextColor,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
                     }
 
-                    // Vertical rule between header columns
+                    // Vertical ruled gridline between header columns
                     if (colIndex < headers.size - 1) {
                         Box(
                             modifier = Modifier
                                 .width(1.5.dp)
-                                .height(38.dp)
-                                .background(tableBorderColor)
+                                .height(40.dp)
+                                .background(gridLineColor)
                         )
                     }
                 }
@@ -869,54 +871,56 @@ fun MathTableView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
-                    .background(tableBorderColor)
+                    .background(outerBorderColor)
             )
 
-            // 2. Data Rows (Ruled with horizontal lines between rows and vertical lines between cells)
+            // 2. Data Rows (Ruled spreadsheet grid: leftmost column shaded, remaining cells white)
             rows.forEachIndexed { rowIndex, row ->
-                val rowBg = if (rowIndex % 2 == 1) alternateRowColor else defaultRowColor
                 Row(
-                    modifier = Modifier
-                        .background(rowBg)
-                        .fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     headers.indices.forEach { colIndex ->
                         val cellText = row.getOrNull(colIndex) ?: ""
+                        val isFirstColumn = (colIndex == 0)
+                        val cellBg = if (isFirstColumn) indexColBgColor else cellWhiteBg
+
                         Box(
                             modifier = Modifier
-                                .widthIn(min = 90.dp)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center
+                                .background(cellBg)
+                                .widthIn(min = 96.dp)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            contentAlignment = if (isFirstColumn) Alignment.CenterStart else Alignment.Center
                         ) {
                             Text(
                                 text = MathRenderer.formatLatexToReadableMath(cellText),
-                                color = PureWhite,
+                                color = darkTextColor,
                                 fontSize = 13.sp,
-                                fontFamily = FontFamily.Serif,
-                                textAlign = TextAlign.Center
+                                fontWeight = if (isFirstColumn) FontWeight.SemiBold else FontWeight.Normal,
+                                fontFamily = if (isFirstColumn) FontFamily.Default else FontFamily.Serif,
+                                textAlign = if (isFirstColumn) TextAlign.Start else TextAlign.Center
                             )
                         }
 
-                        // Vertical rule between columns
+                        // Vertical ruled line between columns
                         if (colIndex < headers.size - 1) {
                             Box(
                                 modifier = Modifier
                                     .width(1.dp)
-                                    .height(34.dp)
-                                    .background(tableBorderColor)
+                                    .height(36.dp)
+                                    .background(gridLineColor)
                             )
                         }
                     }
                 }
 
-                // Horizontal rule between data rows
+                // Horizontal ruled line between data rows
                 if (rowIndex < rows.size - 1) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
-                            .background(tableBorderColor)
+                            .background(gridLineColor)
                     )
                 }
             }

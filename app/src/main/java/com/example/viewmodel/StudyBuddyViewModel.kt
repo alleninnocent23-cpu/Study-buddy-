@@ -533,7 +533,25 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 }
             } else null
 
-            val result = if (image != null) {
+            var effectivePrompt = promptText
+            val result: Result<ExplanationResult> = if (isVoiceNote && voiceAudioFilePath != null && java.io.File(voiceAudioFilePath).exists() && (promptText.isBlank() || promptText.startsWith("Voice note"))) {
+                // Multimodal audio recognition & response through GeminiClient
+                val audioFile = java.io.File(voiceAudioFilePath)
+                val audioResult = GeminiClient.transcribeAudioAndExplain(audioFile, state.selectedSubject, grade)
+                if (audioResult.isSuccess) {
+                    val (transcription, explanation) = audioResult.getOrThrow()
+                    effectivePrompt = transcription
+                    // Update user's message with transcribed text
+                    tutorState.value = tutorState.value.copy(
+                        messages = tutorState.value.messages.map { msg ->
+                            if (msg.id == userMsg.id) msg.copy(text = transcription) else msg
+                        }
+                    )
+                    Result.success(explanation)
+                } else {
+                    GeminiClient.explainTopic(effectivePrompt, state.selectedSubject, grade, historyList)
+                }
+            } else if (image != null) {
                 GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
             } else {
                 GeminiClient.explainTopic(promptText, state.selectedSubject, grade, historyList)
