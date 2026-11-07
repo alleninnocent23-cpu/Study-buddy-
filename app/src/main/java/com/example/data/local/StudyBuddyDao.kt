@@ -20,6 +20,9 @@ interface UserDao {
 
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
     suspend fun getUserById(userId: Long): UserEntity?
+
+    @Query("UPDATE users SET profilePhotoUri = :photoUri WHERE id = :userId")
+    suspend fun updateProfilePhoto(userId: Long, photoUri: String?)
 }
 
 @Dao

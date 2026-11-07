@@ -201,6 +201,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
             onVoiceGenderChange = { viewModel.setVoiceGender(it) },
             onDismiss = { showSettingsDialog = false },
             onSaveApiKey = { viewModel.saveCustomApiKey(it) },
+            onUpdateProfilePhoto = { viewModel.updateUserProfilePhoto(it) },
             onLogout = {
                 showSettingsDialog = false
                 viewModel.logout()

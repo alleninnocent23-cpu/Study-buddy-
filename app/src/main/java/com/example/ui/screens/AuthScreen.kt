@@ -382,69 +382,33 @@ fun AuthScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Bottom pill buttons matching reference design: Google & Facebook
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            // Google Sign-In Button (Prominent, full-width, centered in the middle)
+            OutlinedButton(
+                onClick = onGoogleLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("auth_google_button"),
+                shape = RoundedCornerShape(25.dp),
+                border = ButtonDefaults.outlinedButtonBorder.copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = PureWhite
+                )
             ) {
-                // Google option
-                OutlinedButton(
-                    onClick = onGoogleLogin,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(46.dp)
-                        .testTag("auth_google_button"),
-                    shape = RoundedCornerShape(23.dp),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = PureWhite
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        GoogleLogoIcon()
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Google",
-                            color = PureWhite,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Facebook option
-                OutlinedButton(
-                    onClick = onFacebookLogin,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(46.dp)
-                        .testTag("auth_facebook_button"),
-                    shape = RoundedCornerShape(23.dp),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = PureWhite
+                    GoogleLogoIcon()
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (state.isLoginMode) "Continue with Google" else "Sign up with Google",
+                        color = PureWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        FacebookLogoIcon()
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Facebook",
-                            color = PureWhite,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
                 }
             }
 

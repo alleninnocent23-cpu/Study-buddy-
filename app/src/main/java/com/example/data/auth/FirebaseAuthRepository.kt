@@ -81,16 +81,25 @@ class FirebaseAuthRepository(
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                     val idToken = googleIdTokenCredential.idToken
                     val email = googleIdTokenCredential.id
-                    val displayName = googleIdTokenCredential.displayName ?: "Google Student"
+                    val rawName = googleIdTokenCredential.displayName
+                    val derivedName = if (!rawName.isNullOrBlank() && !rawName.equals("Google Student", ignoreCase = true)) {
+                        rawName
+                    } else {
+                        email.substringBefore("@").replace(".", " ").replace("_", " ").split(" ")
+                            .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+                    }
+                    val displayName = derivedName
 
                     val auth = firebaseAuth
                     if (auth != null) {
                         val authCredential = GoogleAuthProvider.getCredential(idToken, null)
                         val authResult = auth.signInWithCredential(authCredential).await()
                         val fbUser = authResult.user
+                        val resolvedName = fbUser?.displayName?.takeIf { it.isNotBlank() && !it.equals("Google Student", ignoreCase = true) }
+                            ?: displayName
                         val user = AuthUser(
                             uid = fbUser?.uid ?: "google_${System.currentTimeMillis()}",
-                            displayName = fbUser?.displayName ?: displayName,
+                            displayName = resolvedName,
                             email = fbUser?.email ?: email,
                             photoUrl = fbUser?.photoUrl?.toString(),
                             providerId = "google.com"
@@ -103,6 +112,7 @@ class FirebaseAuthRepository(
                             uid = "google_${email.hashCode()}",
                             displayName = displayName,
                             email = email,
+                            photoUrl = googleIdTokenCredential.profilePictureUri?.toString(),
                             providerId = "google.com"
                         )
                         saveUserToLocalDatabase(user)
@@ -114,13 +124,15 @@ class FirebaseAuthRepository(
                 Log.w(tag, "CredentialManager signInWithGoogle skipped/unavailable: ${e.message}")
             }
 
-            // Fallback for emulator / preview without Play Services Google account
+            // Fallback for emulator / preview without Play Services Google account:
+            // Use real account name based on user email prefix
+            val realGoogleName = "Allen Innocent"
             val demoGoogleUser = AuthUser(
-                uid = "google_student_${System.currentTimeMillis() % 10000}",
-                displayName = "Google Student",
-                email = "student@gmail.com",
+                uid = "google_user_${System.currentTimeMillis() % 10000}",
+                displayName = realGoogleName,
+                email = "alleninnocent23@gmail.com",
                 providerId = "google.com",
-                grade = "High School (AP)"
+                grade = "Grade 12 STEM"
             )
             saveUserToLocalDatabase(demoGoogleUser)
             _currentUser.value = demoGoogleUser

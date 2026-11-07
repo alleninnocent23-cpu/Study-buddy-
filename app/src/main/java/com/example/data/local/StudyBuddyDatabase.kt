@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [UserEntity::class, StudySessionEntity::class, QuizEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class StudyBuddyDatabase : RoomDatabase() {

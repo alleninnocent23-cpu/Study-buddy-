@@ -68,11 +68,20 @@ fun SettingsDialog(
     onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
     onDismiss: () -> Unit,
     onSaveApiKey: (String) -> Unit,
+    onUpdateProfilePhoto: ((String?) -> Unit)? = null,
     onLogout: () -> Unit
 ) {
     var keyText by remember { mutableStateOf(GeminiClient.customApiKey ?: "") }
     var saveFeedback by remember { mutableStateOf<String?>(null) }
     var showApiManagementDialog by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            onUpdateProfilePhoto?.invoke(uri.toString())
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         GlassCard(
@@ -121,7 +130,7 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Student Profile Info
+                // Student Profile Info with Profile Picture selection
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -133,19 +142,40 @@ fun SettingsDialog(
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Profile Avatar / Picture (clickable to pick photo)
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .border(1.dp, PureWhite, CircleShape),
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .border(1.5.dp, PureWhite, CircleShape)
+                                .clickable {
+                                    photoPickerLauncher.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = (currentUser?.name?.take(1) ?: "S").uppercase(),
-                                color = PureWhite,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (!currentUser?.profilePhotoUri.isNullOrBlank()) {
+                                coil.compose.AsyncImage(
+                                    model = currentUser?.profilePhotoUri,
+                                    contentDescription = "Profile picture",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = (currentUser?.name?.take(1) ?: "S").uppercase(),
+                                    color = PureWhite,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = currentUser?.name ?: "Guest Student",
@@ -154,9 +184,15 @@ fun SettingsDialog(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = currentUser?.grade ?: "High School",
+                                text = currentUser?.email ?: "student@school.edu",
                                 color = TextMutedGray,
                                 fontSize = 11.sp
+                            )
+                            Text(
+                                text = "Tap photo to change profile picture",
+                                color = com.example.ui.theme.ChatGptPlusStarBlue,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }

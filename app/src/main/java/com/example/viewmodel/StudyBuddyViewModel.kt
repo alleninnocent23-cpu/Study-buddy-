@@ -191,6 +191,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     private var examDistinctionsCount = 0
 
     val pomodoroNotificationHelper = PomodoroNotificationHelper(application)
+    val studyNotificationScheduler = com.example.util.StudyNotificationScheduler(application)
     private var pomodoroTimerJob: kotlinx.coroutines.Job? = null
     private var examTimerJob: kotlinx.coroutines.Job? = null
 
@@ -219,6 +220,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 _currentUserId.value = user.id
             }
         }
+
+        // Schedule periodic 2-hour study & exam notifications
+        studyNotificationScheduler.scheduleBiHourlyStudyReminders()
 
         viewModelScope.launch {
             savedSessions.collect { sessions ->
@@ -363,13 +367,20 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                         UserEntity(
                             name = authUser.displayName,
                             email = authUser.email,
-                            grade = authUser.grade
+                            grade = authUser.grade,
+                            profilePhotoUri = authUser.photoUrl
                         )
                     )
-                    user = UserEntity(id = id, name = authUser.displayName, email = authUser.email, grade = authUser.grade)
+                    user = UserEntity(id = id, name = authUser.displayName, email = authUser.email, grade = authUser.grade, profilePhotoUri = authUser.photoUrl)
+                } else if (!authUser.photoUrl.isNullOrBlank() && user.profilePhotoUri.isNullOrBlank()) {
+                    userDao.updateProfilePhoto(user.id, authUser.photoUrl)
+                    user = user.copy(profilePhotoUri = authUser.photoUrl)
                 }
                 _currentUser.value = user
                 _currentUserId.value = user.id
+                // Trigger welcome email notification on Google Sign-In
+                studyNotificationScheduler.sendWelcomeEmailNotification(user.name, user.email)
+                studyNotificationScheduler.scheduleBiHourlyStudyReminders()
                 authState.value = authState.value.copy(isLoading = false)
                 navigateTo(AppScreen.TUTOR)
             }.onFailure { err ->
@@ -405,6 +416,14 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             }.onFailure { err ->
                 authState.value = authState.value.copy(isLoading = false, error = err.localizedMessage)
             }
+        }
+    }
+
+    fun updateUserProfilePhoto(photoUriString: String?) {
+        val user = _currentUser.value ?: return
+        viewModelScope.launch {
+            userDao.updateProfilePhoto(user.id, photoUriString)
+            _currentUser.value = user.copy(profilePhotoUri = photoUriString)
         }
     }
 

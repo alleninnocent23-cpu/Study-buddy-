@@ -799,8 +799,8 @@ fun StepByStepProblemSolutionCard(
 
 /**
  * Mathematical and Educational Table View.
- * Matches the reference notebook/spreadsheet format with clean white paper background,
- * sharp ruled dark border gridlines, a distinct top header row, and left index/category column.
+ * Sleek dark OLED aesthetic with ruled border gridlines, a distinct header row,
+ * left category/index column, and clean typography with all markdown symbols stripped.
  */
 @Composable
 fun MathTableView(
@@ -810,18 +810,25 @@ fun MathTableView(
 ) {
     if (headers.isEmpty() && rows.isEmpty()) return
 
-    // Clean ruled spreadsheet palette matching the user's reference diagram
-    val outerBorderColor = Color(0xFF6B7280) // Sturdy outer boundary
-    val gridLineColor = Color(0xFF9CA3AF)    // Crisp ruled cell dividers
-    val headerBgColor = Color(0xFFE5E7EB)    // Neutral light-gray header bar
-    val indexColBgColor = Color(0xFFF3F4F6)  // Leftmost category/index cell fill
-    val cellWhiteBg = Color(0xFFFFFFFF)      // Pure white paper cell fill
-    val darkTextColor = Color(0xFF111827)    // High-contrast readable black/charcoal text
+    // Clean ruled dark palette
+    val outerBorderColor = Color(0xFF383838) // Crisp border outline
+    val gridLineColor = Color(0xFF282828)    // Ruled cell divider lines
+    val headerBgColor = Color(0xFF1E1E1E)    // Distinct header row background
+    val indexColBgColor = Color(0xFF161616)  // Leftmost category/index cell fill
+    val cellDarkBg = Color(0xFF111111)       // Dark cell background
+    val textPrimary = Color(0xFFF3F4F6)      // Bright white/silver readable text
+    val textSecondary = Color(0xFF9CA3AF)    // Secondary header text
+
+    fun cleanCellText(raw: String): String {
+        return MathRenderer.formatLatexToReadableMath(
+            raw.replace("**", "").replace("*", "").replace("`", "").trim()
+        )
+    }
 
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = cellWhiteBg,
-        border = BorderStroke(2.dp, outerBorderColor),
+        color = cellDarkBg,
+        border = BorderStroke(1.5.dp, outerBorderColor),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 10.dp)
@@ -831,7 +838,7 @@ fun MathTableView(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
         ) {
-            // 1. Top Header Row (Distinct gray header bar with dark grid dividers)
+            // 1. Top Header Row (Distinct dark-elevated header bar with grid dividers)
             Row(
                 modifier = Modifier
                     .background(headerBgColor)
@@ -842,12 +849,12 @@ fun MathTableView(
                     Box(
                         modifier = Modifier
                             .widthIn(min = 96.dp)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = MathRenderer.formatLatexToReadableMath(headerText),
-                            color = darkTextColor,
+                            text = cleanCellText(headerText),
+                            color = textPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
@@ -859,7 +866,7 @@ fun MathTableView(
                         Box(
                             modifier = Modifier
                                 .width(1.5.dp)
-                                .height(40.dp)
+                                .height(42.dp)
                                 .background(gridLineColor)
                         )
                     }
@@ -874,7 +881,7 @@ fun MathTableView(
                     .background(outerBorderColor)
             )
 
-            // 2. Data Rows (Ruled spreadsheet grid: leftmost column shaded, remaining cells white)
+            // 2. Data Rows (Ruled spreadsheet grid: leftmost column shaded dark, remaining cells dark surface)
             rows.forEachIndexed { rowIndex, row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -883,18 +890,18 @@ fun MathTableView(
                     headers.indices.forEach { colIndex ->
                         val cellText = row.getOrNull(colIndex) ?: ""
                         val isFirstColumn = (colIndex == 0)
-                        val cellBg = if (isFirstColumn) indexColBgColor else cellWhiteBg
+                        val cellBg = if (isFirstColumn) indexColBgColor else cellDarkBg
 
                         Box(
                             modifier = Modifier
                                 .background(cellBg)
                                 .widthIn(min = 96.dp)
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             contentAlignment = if (isFirstColumn) Alignment.CenterStart else Alignment.Center
                         ) {
                             Text(
-                                text = MathRenderer.formatLatexToReadableMath(cellText),
-                                color = darkTextColor,
+                                text = cleanCellText(cellText),
+                                color = if (isFirstColumn) textPrimary else textSecondary,
                                 fontSize = 13.sp,
                                 fontWeight = if (isFirstColumn) FontWeight.SemiBold else FontWeight.Normal,
                                 fontFamily = if (isFirstColumn) FontFamily.Default else FontFamily.Serif,
@@ -907,7 +914,7 @@ fun MathTableView(
                             Box(
                                 modifier = Modifier
                                     .width(1.dp)
-                                    .height(36.dp)
+                                    .height(38.dp)
                                     .background(gridLineColor)
                             )
                         }

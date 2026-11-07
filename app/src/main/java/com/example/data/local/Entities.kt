@@ -11,6 +11,7 @@ data class UserEntity(
     val email: String,
     val grade: String,
     val avatarId: Int = 1,
+    val profilePhotoUri: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
