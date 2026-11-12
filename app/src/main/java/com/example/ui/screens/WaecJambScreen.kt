@@ -137,6 +137,7 @@ fun WaecJambScreen(
     onResetToSetup: () -> Unit,
     onPlayAudio: (String) -> Unit,
     onStopAudio: () -> Unit,
+    onOpenTextbookLibrary: ((filterExam: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var activeSubView by remember(state.config.examType) {
@@ -184,7 +185,8 @@ fun WaecJambScreen(
                     ExamScreenStage.GET_STARTED -> {
                         ExamGetStartedView(
                             onGetStarted = onProceedFromGetStarted,
-                            onExit = onExitExamPrep
+                            onExit = onExitExamPrep,
+                            onOpenTextbooks = { onOpenTextbookLibrary?.invoke("WAEC/JAMB") }
                         )
                     }
                     ExamScreenStage.SELECTION_SETUP -> {
@@ -308,7 +310,8 @@ fun WaecJambScreen(
 @Composable
 private fun ExamGetStartedView(
     onGetStarted: () -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onOpenTextbooks: (() -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
 
@@ -461,6 +464,38 @@ private fun ExamGetStartedView(
                     contentDescription = null,
                     tint = TrueBlack,
                     modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // TEXTBOOK LIBRARY & SYLLABUS BUTTON
+            OutlinedButton(
+                onClick = { onOpenTextbooks?.invoke() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 360.dp)
+                    .height(50.dp)
+                    .testTag("waec_jamb_open_textbooks_button"),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = PureWhite
+                ),
+                border = BorderStroke(1.dp, BorderSubtle),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = null,
+                    tint = ChatGptPlusStarBlue,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "OFFICIAL TEXTBOOKS & SYLLABUS",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
                 )
             }
 

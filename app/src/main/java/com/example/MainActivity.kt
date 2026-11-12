@@ -83,6 +83,7 @@ import androidx.compose.material.icons.filled.School
 import com.example.ui.screens.AchievementCelebrationDialog
 import com.example.ui.screens.RewardsScreen
 import com.example.ui.screens.SettingsDialog
+import com.example.ui.screens.TextbookLibraryScreen
 import com.example.ui.screens.WaecJambScreen
 import com.example.ui.screens.WelcomeScreen
 import com.example.ui.theme.BorderLight
@@ -159,7 +160,18 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showGetPlusDialog by remember { mutableStateOf(false) }
 
+    val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.studyNotificationScheduler.scheduleBiHourlyStudyReminders()
+        }
+    }
+
     LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         if (activity?.intent?.getStringExtra("OPEN_SCREEN") == "POMODORO") {
             viewModel.navigateTo(AppScreen.POMODORO)
         }
@@ -172,7 +184,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
         } else {
             when (currentScreen) {
                 AppScreen.AUTH -> viewModel.navigateTo(AppScreen.WELCOME)
-                AppScreen.SCANNER, AppScreen.QUIZ, AppScreen.HISTORY, AppScreen.POMODORO, AppScreen.REWARDS -> viewModel.navigateTo(AppScreen.TUTOR)
+                AppScreen.SCANNER, AppScreen.QUIZ, AppScreen.HISTORY, AppScreen.POMODORO, AppScreen.REWARDS, AppScreen.TEXTBOOK_LIBRARY -> viewModel.navigateTo(AppScreen.TUTOR)
                 AppScreen.EXAM_PREP -> {
                     when (waecJambState.stage) {
                         com.example.data.model.ExamScreenStage.ACTIVE_EXAM -> viewModel.resetWaecJambToSetup()
@@ -321,6 +333,15 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                         isSelected = currentScreen == AppScreen.EXAM_PREP,
                         onClick = {
                             viewModel.openWaecJambPrep()
+                            scope.launch { drawerState.close() }
+                        }
+                    )
+                    DrawerNavItem(
+                        title = "Textbook Library",
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                        isSelected = currentScreen == AppScreen.TEXTBOOK_LIBRARY,
+                        onClick = {
+                            viewModel.openTextbookLibrary()
                             scope.launch { drawerState.close() }
                         }
                     )
@@ -493,12 +514,21 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                                 .background(PureWhite),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = (currentUser?.name ?: "S").take(1).uppercase(),
-                                color = TrueBlack,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
+                            if (!currentUser?.profilePhotoUri.isNullOrBlank()) {
+                                coil.compose.AsyncImage(
+                                    model = currentUser?.profilePhotoUri,
+                                    contentDescription = "Profile Photo",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = (currentUser?.name ?: "S").take(1).uppercase(),
+                                    color = TrueBlack,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(10.dp))
@@ -722,7 +752,8 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onRetakeExam = { viewModel.retakeWaecJambExam() },
                             onResetToSetup = { viewModel.resetWaecJambToSetup() },
                             onPlayAudio = { viewModel.playExplanation(it) },
-                            onStopAudio = { viewModel.stopExplanationVoice() }
+                            onStopAudio = { viewModel.stopExplanationVoice() },
+                            onOpenTextbookLibrary = { viewModel.openTextbookLibrary(it) }
                         )
                     }
 
@@ -733,6 +764,14 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onDismissCelebration = { viewModel.dismissNewBadgeCelebration() },
                             onStartQuizShortcut = { viewModel.navigateTo(AppScreen.QUIZ) },
                             onStartExamShortcut = { viewModel.openWaecJambPrep() }
+                        )
+                    }
+
+                    AppScreen.TEXTBOOK_LIBRARY -> {
+                        val textbookExamFilter by viewModel.textbookInitialExamFilter.collectAsState()
+                        TextbookLibraryScreen(
+                            initialExamFilter = textbookExamFilter,
+                            onBack = { viewModel.navigateTo(AppScreen.TUTOR) }
                         )
                     }
                 }

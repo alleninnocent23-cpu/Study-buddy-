@@ -59,7 +59,8 @@ enum class AppScreen {
     HISTORY,
     POMODORO,
     EXAM_PREP,
-    REWARDS
+    REWARDS,
+    TEXTBOOK_LIBRARY
 }
 
 enum class PomodoroMode(val displayName: String) {
@@ -1883,6 +1884,14 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun openAuthScreen(isLoginMode: Boolean) {
         authState.value = authState.value.copy(isLoginMode = isLoginMode, error = null)
         navigateTo(AppScreen.AUTH)
+    }
+
+    val textbookInitialExamFilter = MutableStateFlow<String?>(null)
+
+    fun openTextbookLibrary(filterExam: String? = null) {
+        voiceManager.stopSpeaking()
+        textbookInitialExamFilter.value = filterExam
+        navigateTo(AppScreen.TEXTBOOK_LIBRARY)
     }
 
     fun resetWaecJambToSetup() {

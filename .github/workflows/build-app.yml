@@ -32,9 +32,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build Android App (APK)
+    name: Build StudyBuddy APK
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
 
     steps:
       - name: 📥 Checkout Repository
@@ -47,18 +47,28 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'gradle'
 
-      - name: 🐘 Setup Gradle
+      - name: 🐘 Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
-      - name: 🔑 Restore or Generate Debug Keystore
+      - name: ⚙️ Configure Gradle Performance & Memory
+        shell: bash
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' > ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          android.useAndroidX=true
+          EOF
+
+      - name: 🔑 Restore or Generate Debug & Release Keystores
         shell: bash
         run: |
           set -e
+          # 1. Debug Keystore
           if [ -f "debug.keystore.base64" ]; then
             echo "Decoding existing debug.keystore from base64..."
             base64 -d debug.keystore.base64 > debug.keystore
@@ -77,63 +87,113 @@ jobs:
           mkdir -p app
           cp debug.keystore app/debug.keystore 2>/dev/null || true
 
-      - name: ⚙️ Configure Google Services & Environment Secrets
+          # 2. Upload Keystore (placeholder so release signing config never blocks build)
+          if [ ! -f "my-upload-key.jks" ]; then
+            echo "Generating upload key for build integrity..."
+            keytool -genkeypair -noprompt \
+              -keystore my-upload-key.jks \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Upload,O=Android,C=US"
+          fi
+
+      - name: 📋 Configure Google Services & Secrets (.env)
         shell: bash
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -e
-          # Setup google-services.json
+          mkdir -p app
+
+          # Configure app/google-services.json
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-            echo "Created app/google-services.json from repository secret."
+            echo "Configured app/google-services.json from GitHub Secrets."
           elif [ ! -f "app/google-services.json" ]; then
-            echo '{"project_info":{"project_number":"1234567890","project_id":"studybuddy-cbt","storage_bucket":"studybuddy.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:studybuddy","android_client_info":{"package_name":"com.example"}},"oauth_client":[],"api_key":[{"current_key":"mock_key"}],"services":{"analytics_service":{"status":1}}}]}' > app/google-services.json
-            echo "Created fallback app/google-services.json."
+            echo "Creating valid app/google-services.json matching applicationId and namespace..."
+            cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "100000000000",
+              "project_id": "studybuddy-app",
+              "storage_bucket": "studybuddy-app.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:100000000000:android:studybuddy1",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.studybuddy.xkjqmw"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
+                "services": { "analytics_service": { "status": 1 } }
+              },
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:100000000000:android:studybuddy2",
+                  "android_client_info": {
+                    "package_name": "com.example"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
+                "services": { "analytics_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
           fi
 
-          # Setup .env file for Secrets Gradle plugin / BuildConfig
+          # Setup .env for Secrets Gradle Plugin
           touch .env
           if [ -n "$GEMINI_API_KEY" ]; then
             echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env
           elif [ -f ".env.example" ]; then
             cp .env.example .env
+          else
+            echo "GEMINI_API_KEY=" > .env
           fi
 
-      - name: 🔨 Ensure Gradle Wrapper Permissions
+      - name: 🔨 Ensure Gradlew Executable
         shell: bash
         run: |
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+          else
+            echo "Generating wrapper scripts..."
+            gradle wrapper --gradle-version 9.3.1
+            chmod +x ./gradlew
           fi
 
       - name: 🚀 Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' || github.event_name == 'push' || github.event_name == 'pull_request' }}
         shell: bash
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace
-          else
-            gradle assembleDebug --stacktrace
-          fi
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 📦 Locate and Rename Debug APK
-        if: ${{ github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' || github.event_name == 'push' || github.event_name == 'pull_request' }}
+      - name: 📦 Locate and Package Debug APK
         shell: bash
         run: |
           mkdir -p dist
-          APK_FILE=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
-          if [ -f "$APK_FILE" ]; then
-            cp "$APK_FILE" dist/StudyBuddy-debug.apk
-            echo "Copied $APK_FILE to dist/StudyBuddy-debug.apk"
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
+          if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" dist/StudyBuddy-debug.apk
+            echo "Successfully prepared APK: $APK_PATH -> dist/StudyBuddy-debug.apk"
+            ls -lh dist/StudyBuddy-debug.apk
           else
-            echo "Error: Debug APK not found!"
+            echo "ERROR: Debug APK not found in app/build/outputs/apk/debug"
             find app/build/outputs -type f || true
             exit 1
           fi
 
-      - name: 📤 Upload StudyBuddy Debug APK Artifact
+      - name: 📤 Upload StudyBuddy APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: StudyBuddy-Debug-App
@@ -141,7 +201,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: 🏷️ Publish GitHub Release with APK on Tag
+      - name: 🏷️ Publish GitHub Release on Tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:

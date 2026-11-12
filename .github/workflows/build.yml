@@ -1,18 +1,30 @@
-name: Build StudyBuddy APK
+name: Build StudyBuddy Android APK
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
       - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type (debug, release, or both)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - both
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,33 +32,45 @@ concurrency:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build StudyBuddy APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: 📥 Checkout repository
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: ☕ Set up JDK 21
+      - name: ☕ Set up Java 21 (JDK)
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '21'
 
-      - name: 🐘 Set up Gradle
+      - name: 🐘 Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: 🔑 Restore or Generate Debug Keystore
+      - name: ⚙️ Configure Gradle Performance & Memory
+        shell: bash
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' > ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          android.useAndroidX=true
+          EOF
+
+      - name: 🔑 Restore or Generate Debug & Release Keystores
         shell: bash
         run: |
           set -e
+          # 1. Debug Keystore
           if [ -f "debug.keystore.base64" ]; then
-            echo "Decoding debug.keystore from base64..."
+            echo "Decoding existing debug.keystore from base64..."
             base64 -d debug.keystore.base64 > debug.keystore
           else
             echo "Generating fresh debug.keystore..."
@@ -63,7 +87,21 @@ jobs:
           mkdir -p app
           cp debug.keystore app/debug.keystore 2>/dev/null || true
 
-      - name: ⚙️ Configure Firebase & Environment Secrets
+          # 2. Upload Keystore (placeholder so release signing config never blocks build)
+          if [ ! -f "my-upload-key.jks" ]; then
+            echo "Generating upload key for build integrity..."
+            keytool -genkeypair -noprompt \
+              -keystore my-upload-key.jks \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Upload,O=Android,C=US"
+          fi
+
+      - name: 📋 Configure Google Services & Secrets (.env)
         shell: bash
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -72,13 +110,12 @@ jobs:
           set -e
           mkdir -p app
 
-          # If user added GOOGLE_SERVICES_JSON as a GitHub Secret, use it
+          # Configure app/google-services.json
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
             echo "Configured app/google-services.json from GitHub Secrets."
           elif [ ! -f "app/google-services.json" ]; then
-            # Generate valid google-services.json matching both namespace and applicationId
-            echo "Generating valid build google-services.json..."
+            echo "Creating valid app/google-services.json matching applicationId and namespace..."
             cat << 'EOF' > app/google-services.json
           {
             "project_info": {
@@ -89,41 +126,25 @@ jobs:
             "client": [
               {
                 "client_info": {
-                  "mobilesdk_app_id": "1:100000000000:android:studybuddy",
+                  "mobilesdk_app_id": "1:100000000000:android:studybuddy1",
                   "android_client_info": {
                     "package_name": "com.aistudio.studybuddy.xkjqmw"
                   }
                 },
                 "oauth_client": [],
-                "api_key": [
-                  {
-                    "current_key": "dummy_api_key_for_ci_build"
-                  }
-                ],
-                "services": {
-                  "analytics_service": {
-                    "status": 1
-                  }
-                }
+                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
+                "services": { "analytics_service": { "status": 1 } }
               },
               {
                 "client_info": {
-                  "mobilesdk_app_id": "1:100000000000:android:studybuddy_pkg",
+                  "mobilesdk_app_id": "1:100000000000:android:studybuddy2",
                   "android_client_info": {
                     "package_name": "com.example"
                   }
                 },
                 "oauth_client": [],
-                "api_key": [
-                  {
-                    "current_key": "dummy_api_key_for_ci_build"
-                  }
-                ],
-                "services": {
-                  "analytics_service": {
-                    "status": 1
-                  }
-                }
+                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
+                "services": { "analytics_service": { "status": 1 } }
               }
             ],
             "configuration_version": "1"
@@ -137,34 +158,37 @@ jobs:
             echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env
           elif [ -f ".env.example" ]; then
             cp .env.example .env
+          else
+            echo "GEMINI_API_KEY=" > .env
           fi
 
-      - name: 🔨 Grant Execute Permission for Gradlew
+      - name: 🔨 Ensure Gradlew Executable
         shell: bash
         run: |
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+          else
+            echo "Generating wrapper scripts..."
+            gradle wrapper --gradle-version 9.3.1
+            chmod +x ./gradlew
           fi
 
-      - name: 🚀 Build StudyBuddy Debug APK
+      - name: 🚀 Build Debug APK
         shell: bash
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 📦 Locate and Prepare APK
+      - name: 📦 Locate and Package Debug APK
         shell: bash
         run: |
           mkdir -p dist
           APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
           if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
             cp "$APK_PATH" dist/StudyBuddy-debug.apk
-            echo "Found and copied: $APK_PATH -> dist/StudyBuddy-debug.apk"
+            echo "Successfully prepared APK: $APK_PATH -> dist/StudyBuddy-debug.apk"
+            ls -lh dist/StudyBuddy-debug.apk
           else
-            echo "ERROR: Debug APK was not found in app/build/outputs/apk/debug"
+            echo "ERROR: Debug APK not found in app/build/outputs/apk/debug"
             find app/build/outputs -type f || true
             exit 1
           fi
@@ -176,3 +200,13 @@ jobs:
           path: dist/StudyBuddy-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: 🏷️ Publish GitHub Release on Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/StudyBuddy-debug.apk
+          name: "StudyBuddy Release ${{ github.ref_name }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false
