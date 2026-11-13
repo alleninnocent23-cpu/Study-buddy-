@@ -7,14 +7,9 @@ import android.util.Log
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.TimeUnit
 import com.example.data.model.ExamType
 import com.example.data.model.WaecJambQuestion
 import com.example.data.repository.WaecJambQuestionBank
@@ -35,17 +30,12 @@ data class ExplanationResult(
 
 object GeminiClient {
     private const val TAG = "GeminiClient"
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
-    private const val TEXT_MODEL = "gemini-3.5-flash"
-    private const val IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    // Active user-selected tier routed through ModelSelectionService & AIProviderManager
+    @Volatile
+    var activeModelTier: StudyBuddyModelTier = StudyBuddyModelTier.FREE
 
-    // Allows user to inspect or override API key in-app settings
+    // Internal override key (managed automatically, never exposed to normal student settings)
     var customApiKey: String? = null
 
     fun getEffectiveApiKey(): String {
@@ -193,7 +183,8 @@ object GeminiClient {
         topic: String,
         subject: String,
         gradeLevel: String,
-        conversationHistory: List<Pair<String, String>> = emptyList()
+        conversationHistory: List<Pair<String, String>> = emptyList(),
+        modelTier: StudyBuddyModelTier = activeModelTier
     ): Result<ExplanationResult> = withContext(Dispatchers.IO) {
         val directReply = getDirectConversationalResponse(topic)
         if (directReply != null) {
@@ -260,126 +251,30 @@ object GeminiClient {
             Respond directly as StudyBuddy following the Core Principle and guidelines above.
         """.trimIndent()
 
-        AiApiManager.executeWithFailover("explainTopic") { keyEntry ->
+        AiApiManager.executeWithFailover(
+            operationName = "explainTopic",
+            tier = modelTier,
+            capability = AiTaskCapability.TEXT_CHAT
+        ) { keyEntry ->
             val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
             if (effectiveKey.isBlank()) {
                 return@executeWithFailover Result.failure(
-                    IllegalStateException("No API key available for AI requests. Configure an API key in Settings or AI Studio Secrets.")
+                    IllegalStateException("AI service credentials are not configured.")
                 )
             }
 
             try {
-                val rawText: String = when (keyEntry.provider) {
-                    AiProviderType.GEMINI -> {
-                        val requestJson = JSONObject().apply {
-                            put("systemInstruction", JSONObject().apply {
-                                put("parts", JSONArray().apply {
-                                    put(JSONObject().apply { put("text", systemInstructionText) })
-                                })
-                            })
-
-                            val contents = JSONArray()
-                            conversationHistory.takeLast(6).forEach { (role, histText) ->
-                                if (histText.isNotBlank()) {
-                                    contents.put(JSONObject().apply {
-                                        put("role", if (role == "user") "user" else "model")
-                                        put("parts", JSONArray().apply {
-                                            put(JSONObject().apply { put("text", histText) })
-                                        })
-                                    })
-                                }
-                            }
-
-                            contents.put(JSONObject().apply {
-                                put("role", "user")
-                                put("parts", JSONArray().apply {
-                                    put(JSONObject().apply { put("text", prompt) })
-                                })
-                            })
-                            put("contents", contents)
-
-                            put("generationConfig", JSONObject().apply {
-                                put("temperature", 0.4)
-                                put("topP", 0.95)
-                            })
-                        }
-
-                        val request = Request.Builder()
-                            .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
-                            .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                            .build()
-
-                        val response = okHttpClient.newCall(request).execute()
-                        val bodyString = response.body?.string() ?: ""
-
-                        if (!response.isSuccessful) {
-                            val errorMsg = try {
-                                JSONObject(bodyString).getJSONObject("error").getString("message")
-                            } catch (e: Exception) {
-                                "HTTP ${response.code}: ${response.message}"
-                            }
-                            return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
-                        }
-
-                        val jsonResponse = JSONObject(bodyString)
-                        jsonResponse.getJSONArray("candidates")
-                            .getJSONObject(0)
-                            .getJSONObject("content")
-                            .getJSONArray("parts")
-                            .getJSONObject(0)
-                            .getString("text")
-                    }
-                    AiProviderType.OPENROUTER, AiProviderType.GROQ, AiProviderType.CUSTOM_OPENAI -> {
-                        val messages = JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("role", "system")
-                                put("content", systemInstructionText)
-                            })
-                            conversationHistory.takeLast(6).forEach { (role, histText) ->
-                                if (histText.isNotBlank()) {
-                                    put(JSONObject().apply {
-                                        put("role", if (role == "user") "user" else "assistant")
-                                        put("content", histText)
-                                    })
-                                }
-                            }
-                            put(JSONObject().apply {
-                                put("role", "user")
-                                put("content", prompt)
-                            })
-                        }
-
-                        val reqJson = JSONObject().apply {
-                            put("model", keyEntry.provider.defaultModel)
-                            put("messages", messages)
-                            put("temperature", 0.4)
-                        }
-
-                        val request = Request.Builder()
-                            .url(keyEntry.provider.defaultBaseUrl)
-                            .addHeader("Authorization", "Bearer $effectiveKey")
-                            .post(reqJson.toString().toRequestBody("application/json".toMediaType()))
-                            .build()
-
-                        val response = okHttpClient.newCall(request).execute()
-                        val bodyString = response.body?.string() ?: ""
-
-                        if (!response.isSuccessful) {
-                            val errorMsg = try {
-                                JSONObject(bodyString).getJSONObject("error").getString("message")
-                            } catch (e: Exception) {
-                                "HTTP ${response.code}: ${response.message}"
-                            }
-                            return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
-                        }
-
-                        val json = JSONObject(bodyString)
-                        json.getJSONArray("choices")
-                            .getJSONObject(0)
-                            .getJSONObject("message")
-                            .getString("content")
-                    }
-                }
+                val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                val rawText = AIProviderManager.executeWithKey(
+                    keyEntry = resolvedEntry,
+                    request = AiExecutionRequest(
+                        prompt = prompt,
+                        systemInstruction = systemInstructionText,
+                        conversationHistory = conversationHistory,
+                        capability = AiTaskCapability.TEXT_CHAT,
+                        tier = modelTier
+                    )
+                )
 
                 val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
                 val match = diagramRegex.find(rawText)
@@ -416,14 +311,21 @@ object GeminiClient {
 
                 cleanText = cleanAcademicText(cleanText)
                 Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed in explainTopic attempt with key ${keyEntry.label}", e)
+                Log.e(TAG, "Failed in explainTopic attempt with key ${keyEntry.label}")
                 Result.failure(e)
             }
         }
     }
 
-    suspend fun scanHomeworkImage(bitmap: Bitmap, contextNote: String = "", subject: String = ""): Result<ExplanationResult> = withContext(Dispatchers.IO) {
+    suspend fun scanHomeworkImage(
+        bitmap: Bitmap,
+        contextNote: String = "",
+        subject: String = "",
+        modelTier: StudyBuddyModelTier = activeModelTier
+    ): Result<ExplanationResult> = withContext(Dispatchers.IO) {
         val base64Image = bitmapToBase64(bitmap)
         val fieldDirective = if (subject.isNotBlank()) getFieldPersonalizationDirective(subject) else ""
         val prompt = """
@@ -451,64 +353,29 @@ object GeminiClient {
             At the end, include [DIAGRAM:type:title] if a diagram is relevant.
         """.trimIndent()
 
-        AiApiManager.executeWithFailover("scanHomeworkImage") { keyEntry ->
-            val effectiveKey = if (keyEntry.provider == AiProviderType.GEMINI && keyEntry.key.isNotBlank()) {
-                keyEntry.key
-            } else {
-                getEffectiveApiKey()
-            }
-
+        AiApiManager.executeWithFailover(
+            operationName = "scanHomeworkImage",
+            tier = modelTier,
+            capability = AiTaskCapability.VISION_OCR
+        ) { keyEntry ->
+            val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
             if (effectiveKey.isBlank()) {
                 return@executeWithFailover Result.failure(
-                    IllegalStateException("No valid API key available for Vision OCR. Please set a key in AI Studio Secrets or AI API Management.")
+                    IllegalStateException("AI Vision OCR credentials are not configured.")
                 )
             }
 
             try {
-                val requestJson = JSONObject().apply {
-                    val contents = JSONArray().apply {
-                        put(JSONObject().apply {
-                            val parts = JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", prompt)
-                                })
-                                put(JSONObject().apply {
-                                    put("inlineData", JSONObject().apply {
-                                        put("mimeType", "image/jpeg")
-                                        put("data", base64Image)
-                                    })
-                                })
-                            }
-                            put("parts", parts)
-                        })
-                    }
-                    put("contents", contents)
-                }
-
-                val request = Request.Builder()
-                    .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
-                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                val response = okHttpClient.newCall(request).execute()
-                val bodyString = response.body?.string() ?: ""
-
-                if (!response.isSuccessful) {
-                    val errorMsg = try {
-                        JSONObject(bodyString).getJSONObject("error").getString("message")
-                    } catch (e: Exception) {
-                        "HTTP ${response.code}: ${response.message}"
-                    }
-                    return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
-                }
-
-                val jsonResponse = JSONObject(bodyString)
-                val text = jsonResponse.getJSONArray("candidates")
-                    .getJSONObject(0)
-                    .getJSONObject("content")
-                    .getJSONArray("parts")
-                    .getJSONObject(0)
-                    .getString("text")
+                val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                val text = AIProviderManager.executeWithKey(
+                    keyEntry = resolvedEntry,
+                    request = AiExecutionRequest(
+                        prompt = prompt,
+                        capability = AiTaskCapability.VISION_OCR,
+                        tier = modelTier,
+                        base64Image = base64Image
+                    )
+                )
 
                 val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
                 val match = diagramRegex.find(text)
@@ -524,8 +391,10 @@ object GeminiClient {
 
                 cleanText = cleanAcademicText(cleanText)
                 Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed in scanHomeworkImage attempt with key ${keyEntry.label}", e)
+                Log.e(TAG, "Failed in scanHomeworkImage attempt with key ${keyEntry.label}")
                 Result.failure(e)
             }
         }
@@ -538,7 +407,8 @@ object GeminiClient {
     suspend fun transcribeAudioAndExplain(
         audioFile: java.io.File,
         subject: String,
-        gradeLevel: String
+        gradeLevel: String,
+        modelTier: StudyBuddyModelTier = activeModelTier
     ): Result<Pair<String, ExplanationResult>> = withContext(Dispatchers.IO) {
         if (!audioFile.exists() || audioFile.length() == 0L) {
             return@withContext Result.failure(IllegalArgumentException("Audio file is empty or missing."))
@@ -554,78 +424,45 @@ object GeminiClient {
         val fieldDirective = getFieldPersonalizationDirective(subject)
         val prompt = """
             You are StudyBuddy, an intelligent Nigerian AI tutor.
-            The student sent a recorded voice note with a question.
-            
+            The student sent a recorded voice note with a question ($gradeLevel, $subject).
+            $fieldDirective
+
             1. Transcribe the student's spoken words accurately.
             2. Answer the question thoroughly, clearly, and step-by-step.
             3. If the user asks for a table, tabular form, or comparison, format it as a clean markdown table.
             4. If mathematics or physics calculations are required, display step-by-step formulas cleanly.
-            
+
             OUTPUT FORMAT:
             Start your response with:
             [TRANSCRIPTION: <exact transcribed text from the voice note>]
-            
+
             Followed immediately by your comprehensive academic response.
         """.trimIndent()
 
-        AiApiManager.executeWithFailover("transcribeAudioAndExplain") { keyEntry ->
-            val effectiveKey = if (keyEntry.provider == AiProviderType.GEMINI && keyEntry.key.isNotBlank()) {
-                keyEntry.key
-            } else {
-                getEffectiveApiKey()
-            }
-
+        AiApiManager.executeWithFailover(
+            operationName = "transcribeAudioAndExplain",
+            tier = modelTier,
+            capability = AiTaskCapability.AUDIO_TRANSCRIPTION
+        ) { keyEntry ->
+            val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
             if (effectiveKey.isBlank()) {
                 return@executeWithFailover Result.failure(
-                    IllegalStateException("No valid API key available for Audio Transcription. Please set a key in AI Studio Secrets.")
+                    IllegalStateException("AI Audio Transcription credentials are not configured.")
                 )
             }
 
             try {
-                val requestJson = JSONObject().apply {
-                    val contents = JSONArray().apply {
-                        put(JSONObject().apply {
-                            val parts = JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", prompt)
-                                })
-                                put(JSONObject().apply {
-                                    put("inlineData", JSONObject().apply {
-                                        put("mimeType", "audio/mp4")
-                                        put("data", base64Audio)
-                                    })
-                                })
-                            }
-                            put("parts", parts)
-                        })
-                    }
-                    put("contents", contents)
-                }
-
-                val request = Request.Builder()
-                    .url("$BASE_URL$TEXT_MODEL:generateContent?key=$effectiveKey")
-                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                val response = okHttpClient.newCall(request).execute()
-                val bodyString = response.body?.string() ?: ""
-
-                if (!response.isSuccessful) {
-                    val errorMsg = try {
-                        JSONObject(bodyString).getJSONObject("error").getString("message")
-                    } catch (e: Exception) {
-                        "HTTP ${response.code}: ${response.message}"
-                    }
-                    return@executeWithFailover Result.failure(Exception("HTTP ${response.code}: $errorMsg"))
-                }
-
-                val jsonResponse = JSONObject(bodyString)
-                val fullText = jsonResponse.getJSONArray("candidates")
-                    .getJSONObject(0)
-                    .getJSONObject("content")
-                    .getJSONArray("parts")
-                    .getJSONObject(0)
-                    .getString("text")
+                val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                val fullText = AIProviderManager.executeWithKey(
+                    keyEntry = resolvedEntry,
+                    request = AiExecutionRequest(
+                        prompt = prompt,
+                        capability = AiTaskCapability.AUDIO_TRANSCRIPTION,
+                        tier = modelTier,
+                        base64Audio = base64Audio,
+                        audioMimeType = "audio/mp4"
+                    )
+                )
 
                 // Extract [TRANSCRIPTION: ...]
                 val transRegex = Regex("\\[TRANSCRIPTION:\\s*([^\\]]+)\\]", RegexOption.IGNORE_CASE)
@@ -645,8 +482,10 @@ object GeminiClient {
 
                 val cleaned = cleanAcademicText(explanationText)
                 Result.success(Pair(transcription, ExplanationResult(cleaned, diagramType, diagramTitle)))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Audio transcription failover error", e)
+                Log.e(TAG, "Audio transcription failover error")
                 Result.failure(e)
             }
         }
@@ -677,88 +516,79 @@ object GeminiClient {
         topic: String,
         subject: String,
         difficulty: String,
-        questionCount: Int = 50
+        questionCount: Int = 50,
+        modelTier: StudyBuddyModelTier = activeModelTier
     ): Result<List<QuizQuestion>> = withContext(Dispatchers.IO) {
-        val apiKey = getEffectiveApiKey()
         val questionsList = mutableListOf<QuizQuestion>()
+        val apiRequestCount = minOf(questionCount, 15)
+        val prompt = """
+            Create a $apiRequestCount-question multiple-choice quiz on the topic '$topic' in '$subject' at '$difficulty' school level.
+            Return ONLY a valid JSON array of objects without markdown formatting or code fences.
+            Each object must have:
+            - "id": integer (1 to $apiRequestCount)
+            - "question": string
+            - "options": array of exactly 4 strings (e.g. ["A) ...", "B) ...", "C) ...", "D) ..."])
+            - "correctIndex": integer (0, 1, 2, or 3)
+            - "explanation": string explaining why the correct answer is right and why other options are incorrect.
+        """.trimIndent()
 
-        if (apiKey.isNotEmpty()) {
-            val apiRequestCount = minOf(questionCount, 15)
-            val prompt = """
-                Create a $apiRequestCount-question multiple-choice quiz on the topic '$topic' in '$subject' at '$difficulty' school level.
-                Return ONLY a valid JSON array of objects without markdown formatting or code fences.
-                Each object must have:
-                - "id": integer (1 to $apiRequestCount)
-                - "question": string
-                - "options": array of exactly 4 strings (e.g. ["A) ...", "B) ...", "C) ...", "D) ..."])
-                - "correctIndex": integer (0, 1, 2, or 3)
-                - "explanation": string explaining why the correct answer is right and why other options are incorrect.
-            """.trimIndent()
-
+        val aiResult = AiApiManager.executeWithFailover(
+            operationName = "generateQuiz",
+            tier = modelTier,
+            capability = AiTaskCapability.STRUCTURED_JSON
+        ) { keyEntry ->
+            val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
+            if (effectiveKey.isBlank()) {
+                return@executeWithFailover Result.failure(IllegalStateException("No API key available"))
+            }
             try {
-                val requestJson = JSONObject().apply {
-                    val contents = JSONArray().apply {
-                        put(JSONObject().apply {
-                            val parts = JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", prompt)
-                                })
-                            }
-                            put("parts", parts)
-                        })
-                    }
-                    put("contents", contents)
-                    put("generationConfig", JSONObject().apply {
-                        put("responseMimeType", "application/json")
-                        put("temperature", 0.4)
-                    })
+                val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                val raw = AIProviderManager.executeWithKey(
+                    keyEntry = resolvedEntry,
+                    request = AiExecutionRequest(
+                        prompt = prompt,
+                        capability = AiTaskCapability.STRUCTURED_JSON,
+                        tier = modelTier,
+                        expectJsonResponse = true
+                    )
+                )
+                Result.success(raw)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+        aiResult.onSuccess { raw ->
+            try {
+                var text = raw.trim()
+                if (text.startsWith("```json")) {
+                    text = text.substring(7)
+                } else if (text.startsWith("```")) {
+                    text = text.substring(3)
                 }
+                if (text.endsWith("```")) {
+                    text = text.substring(0, text.length - 3)
+                }
+                text = text.trim()
 
-                val request = Request.Builder()
-                    .url("$BASE_URL$TEXT_MODEL:generateContent?key=$apiKey")
-                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                val response = okHttpClient.newCall(request).execute()
-                val bodyString = response.body?.string() ?: ""
-
-                if (response.isSuccessful) {
-                    val jsonResponse = JSONObject(bodyString)
-                    var text = jsonResponse.getJSONArray("candidates")
-                        .getJSONObject(0)
-                        .getJSONObject("content")
-                        .getJSONArray("parts")
-                        .getJSONObject(0)
-                        .getString("text")
-
-                    text = text.trim()
-                    if (text.startsWith("```json")) {
-                        text = text.substring(7)
-                    } else if (text.startsWith("```")) {
-                        text = text.substring(3)
+                val questionsArray = JSONArray(text)
+                for (i in 0 until questionsArray.length()) {
+                    val obj = questionsArray.getJSONObject(i)
+                    val id = obj.optInt("id", questionsList.size + 1)
+                    val q = cleanAcademicText(obj.getString("question"))
+                    val optArray = obj.getJSONArray("options")
+                    val options = mutableListOf<String>()
+                    for (j in 0 until optArray.length()) {
+                        options.add(cleanAcademicText(optArray.getString(j)))
                     }
-                    if (text.endsWith("```")) {
-                        text = text.substring(0, text.length - 3)
-                    }
-                    text = text.trim()
-
-                    val questionsArray = JSONArray(text)
-                    for (i in 0 until questionsArray.length()) {
-                        val obj = questionsArray.getJSONObject(i)
-                        val id = obj.optInt("id", questionsList.size + 1)
-                        val q = cleanAcademicText(obj.getString("question"))
-                        val optArray = obj.getJSONArray("options")
-                        val options = mutableListOf<String>()
-                        for (j in 0 until optArray.length()) {
-                            options.add(cleanAcademicText(optArray.getString(j)))
-                        }
-                        val correctIndex = obj.getInt("correctIndex")
-                        val explanation = cleanAcademicText(obj.getString("explanation"))
-                        questionsList.add(QuizQuestion(id, q, options, correctIndex, explanation))
-                    }
+                    val correctIndex = obj.getInt("correctIndex")
+                    val explanation = cleanAcademicText(obj.getString("explanation"))
+                    questionsList.add(QuizQuestion(id, q, options, correctIndex, explanation))
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Gemini API quiz call error: ${e.message}, using dynamic bank")
+                Log.w(TAG, "Quiz JSON parse error, falling back to dynamic bank")
             }
         }
 
@@ -1054,23 +884,9 @@ object GeminiClient {
         yearEnd: Int = 2026,
         topic: String = "All Topics",
         difficulty: String = "Mixed",
-        count: Int = 10
+        count: Int = 10,
+        modelTier: StudyBuddyModelTier = activeModelTier
     ): Result<List<WaecJambQuestion>> = withContext(Dispatchers.IO) {
-        val apiKey = getEffectiveApiKey()
-        if (apiKey.isEmpty()) {
-            val fallback = WaecJambQuestionBank.getQuestions(
-                examType = examType,
-                subject = subject,
-                selectedYear = selectedYear,
-                yearStart = yearStart,
-                yearEnd = yearEnd,
-                topic = topic,
-                difficulty = difficulty,
-                count = count
-            )
-            return@withContext Result.success(fallback)
-        }
-
         val examLabel = if (examType == ExamType.WAEC) "WAEC O'Level/A'Level" else "JAMB UTME"
         val yearFocus = if (selectedYear != null) "$selectedYear" else "$yearStart to $yearEnd (spanning 1997 to 2026)"
 
@@ -1114,34 +930,36 @@ object GeminiClient {
         """.trimIndent()
 
         try {
-            val url = "$BASE_URL$TEXT_MODEL:generateContent?key=$apiKey"
-            val requestJson = JSONObject().apply {
-                val contentsArray = JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", prompt) })
-                        })
-                    })
+            val aiResult = AiApiManager.executeWithFailover(
+                operationName = "generateWaecJambQuestions",
+                tier = modelTier,
+                capability = AiTaskCapability.STRUCTURED_JSON
+            ) { keyEntry ->
+                val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
+                if (effectiveKey.isBlank()) {
+                    return@executeWithFailover Result.failure(IllegalStateException("No API key configured"))
                 }
-                put("contents", contentsArray)
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.2)
-                    put("maxOutputTokens", 4096)
-                    put("responseMimeType", "application/json")
-                })
+                try {
+                    val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                    val raw = AIProviderManager.executeWithKey(
+                        keyEntry = resolvedEntry,
+                        request = AiExecutionRequest(
+                            prompt = prompt,
+                            capability = AiTaskCapability.STRUCTURED_JSON,
+                            tier = modelTier,
+                            expectJsonResponse = true
+                        )
+                    )
+                    Result.success(raw)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
             }
 
-            val request = Request.Builder()
-                .url(url)
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = okHttpClient.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                Log.w(TAG, "Gemini API error, falling back to local question bank: $responseBody")
+            val rawText = aiResult.getOrNull()?.trim().orEmpty()
+            if (rawText.isBlank()) {
                 val fallback = WaecJambQuestionBank.getQuestions(
                     examType = examType,
                     subject = subject,
@@ -1154,13 +972,6 @@ object GeminiClient {
                 )
                 return@withContext Result.success(fallback)
             }
-
-            val jsonObject = JSONObject(responseBody)
-            val candidates = jsonObject.getJSONArray("candidates")
-            val candidate = candidates.getJSONObject(0)
-            val contentObj = candidate.getJSONObject("content")
-            val parts = contentObj.getJSONArray("parts")
-            val rawText = parts.getJSONObject(0).getString("text").trim()
 
             val cleanJson = if (rawText.startsWith("```json")) {
                 rawText.removePrefix("```json").removeSuffix("```").trim()
@@ -1250,7 +1061,7 @@ object GeminiClient {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error generating WAEC/JAMB questions: ${e.message}", e)
+            Log.e(TAG, "Error generating WAEC/JAMB questions, using verified local bank")
             val fallback = WaecJambQuestionBank.getQuestions(
                 examType = examType,
                 subject = subject,

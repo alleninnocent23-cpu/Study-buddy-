@@ -1,6 +1,5 @@
 package com.example.ui.screens
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.background
+
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,46 +20,33 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.data.api.GeminiClient
 import com.example.data.local.UserEntity
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.ChatGptPlusStarBlue
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.material.icons.filled.AutoAwesome
-import com.example.ui.theme.ChatGptPlusStarBlue
-import com.example.ui.theme.TextSubtle
 import com.example.ui.theme.TrueBlack
 
 @Composable
@@ -68,13 +55,9 @@ fun SettingsDialog(
     voiceGender: com.example.util.VoiceGender = com.example.util.VoiceGender.MALE,
     onVoiceGenderChange: (com.example.util.VoiceGender) -> Unit = {},
     onDismiss: () -> Unit,
-    onSaveApiKey: (String) -> Unit,
     onUpdateProfilePhoto: ((String?) -> Unit)? = null,
     onLogout: () -> Unit
 ) {
-    var keyText by remember { mutableStateOf(GeminiClient.customApiKey ?: "") }
-    var saveFeedback by remember { mutableStateOf<String?>(null) }
-    var showApiManagementDialog by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
@@ -223,25 +206,30 @@ fun SettingsDialog(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 48.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, if (isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
                             .clickable { onVoiceGenderChange(com.example.util.VoiceGender.MALE) },
                         color = if (isMale) PureWhite else TrueBlack
                     ) {
                         Column(
-                            modifier = Modifier.padding(vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "👨 Nigerian Male",
+                                text = "Nigerian Male",
                                 color = if (isMale) TrueBlack else PureWhite,
                                 fontSize = 12.sp,
-                                fontWeight = if (isMale) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (isMale) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "Clear Baritone",
                                 color = if (isMale) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
-                                fontSize = 10.sp
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -249,146 +237,33 @@ fun SettingsDialog(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 48.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, if (!isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
                             .clickable { onVoiceGenderChange(com.example.util.VoiceGender.FEMALE) },
                         color = if (!isMale) PureWhite else TrueBlack
                     ) {
                         Column(
-                            modifier = Modifier.padding(vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "👩 Nigerian Female",
+                                text = "Nigerian Female",
                                 color = if (!isMale) TrueBlack else PureWhite,
                                 fontSize = 12.sp,
-                                fontWeight = if (!isMale) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (!isMale) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "Articulate Tone",
                                 color = if (!isMale) TrueBlack.copy(alpha = 0.7f) else TextMutedGray,
-                                fontSize = 10.sp
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // API Key Configuration Section
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Security, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "AI Studio Secrets & Provider Keys",
-                        color = PureWhite,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Recommended: Set GEMINI_API_KEY in the AI Studio Secrets panel. You can also override or test a custom key here:",
-                    color = TextMutedGray,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = keyText,
-                    onValueChange = { keyText = it },
-                    placeholder = { Text("AIzaSy... (leave empty for default)", fontSize = 11.sp, color = TextSubtle) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("settings_api_key_input"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = PureWhite,
-                        unfocusedBorderColor = BorderSubtle,
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    singleLine = true
-                )
-
-                if (saveFeedback != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = saveFeedback!!,
-                        color = PureWhite,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            onSaveApiKey(keyText)
-                            saveFeedback = "API Key preference applied successfully!"
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PureWhite,
-                            contentColor = TrueBlack
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save Key", color = TrueBlack, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            keyText = ""
-                            onSaveApiKey("")
-                            saveFeedback = "Reset to default key."
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Reset", color = TextMutedGray, fontSize = 12.sp)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Advanced AI API Management & Automatic Failover Button
-                Button(
-                    onClick = { showApiManagementDialog = true },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF1E2838),
-                        contentColor = PureWhite
-                    ),
-                    border = BorderStroke(1.dp, ChatGptPlusStarBlue),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("open_api_management_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = ChatGptPlusStarBlue,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "AI API Management & Auto Failover",
-                        color = PureWhite,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -398,6 +273,7 @@ fun SettingsDialog(
                     onClick = onLogout,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .testTag("settings_logout_button"),
                     shape = RoundedCornerShape(8.dp),
                     border = ButtonDefaults.outlinedButtonBorder.copy(
@@ -406,13 +282,9 @@ fun SettingsDialog(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Sign Out / Switch Student", color = PureWhite, fontSize = 13.sp)
+                    Text("Sign Out / Switch Student", color = PureWhite, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
-    }
-
-    if (showApiManagementDialog) {
-        ApiManagementDialog(onDismiss = { showApiManagementDialog = false })
     }
 }

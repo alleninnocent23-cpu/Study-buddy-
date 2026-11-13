@@ -64,7 +64,22 @@ class FirebaseAuthRepository(
     override suspend fun signInWithGoogle(context: Context): Result<AuthUser> = withContext(Dispatchers.IO) {
         try {
             val credentialManager = CredentialManager.create(context)
-            val signInWithGoogleOption = GetSignInWithGoogleOption.Builder("studybuddy-google-auth.apps.googleusercontent.com")
+            val webClientResId = context.resources.getIdentifier(
+                "default_web_client_id",
+                "string",
+                context.packageName
+            )
+            val webClientId = if (webClientResId != 0) {
+                context.getString(webClientResId)
+            } else {
+                ""
+            }
+            if (webClientId.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("Google Sign-In client configuration is missing.")
+                )
+            }
+            val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(webClientId)
                 .build()
 
             val request = GetCredentialRequest.Builder()

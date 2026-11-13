@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.GetPlusDialog
@@ -106,6 +109,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.data.api.configureAppCheck(this, intent)
         enableEdgeToEdge()
         com.example.data.api.AiApiManager.initialize(applicationContext)
 
@@ -151,6 +155,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
 
     val attachedImage by viewModel.attachedImage.collectAsState()
     val attachedFileName by viewModel.attachedFileName.collectAsState()
+    val selectedModelTier by viewModel.selectedModelTier.collectAsState()
 
     val context = LocalContext.current
     val activity = context as? ComponentActivity
@@ -212,7 +217,6 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
             voiceGender = voiceGender,
             onVoiceGenderChange = { viewModel.setVoiceGender(it) },
             onDismiss = { showSettingsDialog = false },
-            onSaveApiKey = { viewModel.saveCustomApiKey(it) },
             onUpdateProfilePhoto = { viewModel.updateUserProfilePhoto(it) },
             onLogout = {
                 showSettingsDialog = false
@@ -241,324 +245,382 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                 drawerContainerColor = ChatGptDrawerBg,
                 modifier = Modifier
                     .widthIn(max = 300.dp)
-                    .fillMaxWidth(0.82f)
+                    .fillMaxWidth(0.84f)
                     .fillMaxHeight()
             ) {
-                Column(
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
-                        .padding(16.dp)
+                        .testTag("navigation_drawer_scroll_list"),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     // Drawer Top Header: Logo + New Chat Button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Study Buddy",
-                            color = PureWhite,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = {
-                                viewModel.clearCurrentChat()
-                                viewModel.navigateTo(AppScreen.TUTOR)
-                                scope.launch { drawerState.close() }
-                            },
+                    item(key = "drawer_header") {
+                        Row(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(ChatGptPillDark)
-                                .testTag("drawer_new_chat_button")
+                                .fillMaxWidth()
+                                .padding(bottom = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "New Chat", tint = PureWhite, modifier = Modifier.size(20.dp))
+                            Text(
+                                text = "Study Buddy",
+                                color = PureWhite,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    viewModel.clearCurrentChat()
+                                    viewModel.navigateTo(AppScreen.TUTOR)
+                                    scope.launch { drawerState.close() }
+                                },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(ChatGptPillDark)
+                                    .testTag("drawer_new_chat_button")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "New Chat", tint = PureWhite, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Primary Navigation Links
-                    DrawerNavItem(
-                        title = "Study Buddy Tutor",
-                        icon = Icons.AutoMirrored.Filled.MenuBook,
-                        isSelected = currentScreen == AppScreen.TUTOR,
-                        onClick = {
-                            viewModel.navigateTo(AppScreen.TUTOR)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Homework Scanner",
-                        icon = Icons.Default.CameraAlt,
-                        isSelected = currentScreen == AppScreen.SCANNER,
-                        onClick = {
-                            viewModel.navigateTo(AppScreen.SCANNER)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Quiz Generator",
-                        icon = Icons.Default.Psychology,
-                        isSelected = currentScreen == AppScreen.QUIZ,
-                        onClick = {
-                            viewModel.navigateTo(AppScreen.QUIZ)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Saved Sessions & History",
-                        icon = Icons.Default.History,
-                        isSelected = currentScreen == AppScreen.HISTORY,
-                        onClick = {
-                            viewModel.navigateTo(AppScreen.HISTORY)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Pomodoro Study Timer",
-                        icon = Icons.Default.HourglassBottom,
-                        isSelected = currentScreen == AppScreen.POMODORO,
-                        onClick = {
-                            viewModel.navigateTo(AppScreen.POMODORO)
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "WAEC & JAMB Exam Prep",
-                        icon = Icons.Default.School,
-                        isSelected = currentScreen == AppScreen.EXAM_PREP,
-                        onClick = {
-                            viewModel.openWaecJambPrep()
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Textbook Library",
-                        icon = Icons.AutoMirrored.Filled.MenuBook,
-                        isSelected = currentScreen == AppScreen.TEXTBOOK_LIBRARY,
-                        onClick = {
-                            viewModel.openTextbookLibrary()
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-                    DrawerNavItem(
-                        title = "Rewards & Badges",
-                        icon = Icons.Default.EmojiEvents,
-                        isSelected = currentScreen == AppScreen.REWARDS,
-                        onClick = {
-                            viewModel.openRewards()
-                            scope.launch { drawerState.close() }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = BorderSubtle)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    item(key = "nav_tutor") {
+                        DrawerNavItem(
+                            title = "Study Buddy Tutor",
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            isSelected = currentScreen == AppScreen.TUTOR,
+                            onClick = {
+                                viewModel.navigateTo(AppScreen.TUTOR)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_scanner") {
+                        DrawerNavItem(
+                            title = "Homework Scanner",
+                            icon = Icons.Default.CameraAlt,
+                            isSelected = currentScreen == AppScreen.SCANNER,
+                            onClick = {
+                                viewModel.navigateTo(AppScreen.SCANNER)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_quiz") {
+                        DrawerNavItem(
+                            title = "Quiz Generator",
+                            icon = Icons.Default.Psychology,
+                            isSelected = currentScreen == AppScreen.QUIZ,
+                            onClick = {
+                                viewModel.navigateTo(AppScreen.QUIZ)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_history") {
+                        DrawerNavItem(
+                            title = "Saved Sessions & History",
+                            icon = Icons.Default.History,
+                            isSelected = currentScreen == AppScreen.HISTORY,
+                            onClick = {
+                                viewModel.navigateTo(AppScreen.HISTORY)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_pomodoro") {
+                        DrawerNavItem(
+                            title = "Pomodoro Study Timer",
+                            icon = Icons.Default.HourglassBottom,
+                            isSelected = currentScreen == AppScreen.POMODORO,
+                            onClick = {
+                                viewModel.navigateTo(AppScreen.POMODORO)
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_exam") {
+                        DrawerNavItem(
+                            title = "WAEC & JAMB Exam Prep",
+                            icon = Icons.Default.School,
+                            isSelected = currentScreen == AppScreen.EXAM_PREP,
+                            onClick = {
+                                viewModel.openWaecJambPrep()
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_library") {
+                        DrawerNavItem(
+                            title = "Textbook Library",
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            isSelected = currentScreen == AppScreen.TEXTBOOK_LIBRARY,
+                            onClick = {
+                                viewModel.openTextbookLibrary()
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+                    item(key = "nav_rewards") {
+                        DrawerNavItem(
+                            title = "Rewards & Badges",
+                            icon = Icons.Default.EmojiEvents,
+                            isSelected = currentScreen == AppScreen.REWARDS,
+                            onClick = {
+                                viewModel.openRewards()
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
 
                     // Voice Persona Selector in Menu Section
-                    Text(
-                        text = "Voice Persona (Nigerian English)",
-                        color = TextMutedGray,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
+                    item(key = "drawer_voice_persona") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider(color = BorderSubtle)
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val isMale = voiceGender == com.example.util.VoiceGender.MALE
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, if (isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
-                                .clickable { viewModel.setVoiceGender(com.example.util.VoiceGender.MALE) },
-                            color = if (isMale) PureWhite else TrueBlack
-                        ) {
                             Text(
-                                text = "👨 Male (Clear)",
-                                color = if (isMale) TrueBlack else PureWhite,
+                                text = "Voice Persona (Nigerian English)",
+                                color = TextMutedGray,
                                 fontSize = 11.sp,
-                                fontWeight = if (isMale) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 7.dp)
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
-                        }
 
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, if (!isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
-                                .clickable { viewModel.setVoiceGender(com.example.util.VoiceGender.FEMALE) },
-                            color = if (!isMale) PureWhite else TrueBlack
-                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val isMale = voiceGender == com.example.util.VoiceGender.MALE
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
+                                        .clickable { viewModel.setVoiceGender(com.example.util.VoiceGender.MALE) },
+                                    color = if (isMale) PureWhite else TrueBlack
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp)) {
+                                        Text(
+                                            text = "Male (Clear)",
+                                            color = if (isMale) TrueBlack else PureWhite,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isMale) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (!isMale) PureWhite else BorderSubtle, RoundedCornerShape(8.dp))
+                                        .clickable { viewModel.setVoiceGender(com.example.util.VoiceGender.FEMALE) },
+                                    color = if (!isMale) PureWhite else TrueBlack
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp)) {
+                                        Text(
+                                            text = "Female",
+                                            color = if (!isMale) TrueBlack else PureWhite,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (!isMale) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = BorderSubtle)
+                            Spacer(modifier = Modifier.height(10.dp))
+
                             Text(
-                                text = "👩 Female",
-                                color = if (!isMale) TrueBlack else PureWhite,
+                                text = "Recent Study Chats",
+                                color = TextMutedGray,
                                 fontSize = 11.sp,
-                                fontWeight = if (!isMale) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 7.dp)
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = BorderSubtle)
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Recent Chats Section
-                    Text(
-                        text = "Recent Study Chats",
-                        color = TextMutedGray,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                    ) {
-                        if (savedSessions.isEmpty()) {
-                            item {
+                    // Recent Chats Section (scrollable inline with the rest of the drawer)
+                    if (savedSessions.isEmpty()) {
+                        item(key = "recent_empty") {
+                            Text(
+                                text = "No saved study sessions yet",
+                                color = Color(0xFF666666),
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(savedSessions.take(15), key = { "drawer_session_${it.id}" }) { session ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 44.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        viewModel.loadSavedSession(session)
+                                        scope.launch { drawerState.close() }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
-                                    text = "No saved study sessions yet",
-                                    color = Color(0xFF666666),
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    text = session.topic,
+                                    color = PureWhite,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
-                        } else {
-                            items(savedSessions.take(15)) { session ->
+                        }
+                    }
+
+                    // Upgrade to Plus Banner + Student Profile Footer
+                    item(key = "drawer_footer") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(color = BorderSubtle)
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Surface(
+                                onClick = {
+                                    showGetPlusDialog = true
+                                    scope.launch { drawerState.close() }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                color = ChatGptPillDark,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp)
+                                    .testTag("drawer_upgrade_plus_button")
+                            ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            viewModel.loadSavedSession(session)
-                                            scope.launch { drawerState.close() }
-                                        }
-                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    modifier = Modifier.padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = ChatGptPlusStarBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Upgrade to Plus",
+                                            color = PureWhite,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Unlimited scans & diagrams",
+                                            color = TextMutedGray,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        showSettingsDialog = true
+                                        scope.launch { drawerState.close() }
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .testTag("drawer_profile_settings_row"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(PureWhite),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!currentUser?.profilePhotoUri.isNullOrBlank()) {
+                                        coil.compose.AsyncImage(
+                                            model = currentUser?.profilePhotoUri,
+                                            contentDescription = "Profile Photo",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    } else {
+                                        Text(
+                                            text = (currentUser?.name ?: "S").take(1).uppercase(),
+                                            color = TrueBlack,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = session.topic,
+                                        text = currentUser?.name ?: "Student",
                                         color = PureWhite,
                                         fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
-                                        modifier = Modifier.weight(1f)
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = currentUser?.grade ?: "StudyBuddy Account",
+                                        color = TextMutedGray,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        showSettingsDialog = true
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Settings,
+                                        contentDescription = "Settings",
+                                        tint = TextMutedGray,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(color = BorderSubtle)
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Upgrade to Plus Banner in Drawer
-                    Surface(
-                        onClick = {
-                            showGetPlusDialog = true
-                            scope.launch { drawerState.close() }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = ChatGptPillDark,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = ChatGptPlusStarBlue,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Upgrade to Plus", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("Unlimited scans & diagrams", color = TextMutedGray, fontSize = 11.sp)
-                            }
-                        }
-                    }
-
-                    // Student Profile & Settings Footer
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { showSettingsDialog = true }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(PureWhite),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!currentUser?.profilePhotoUri.isNullOrBlank()) {
-                                coil.compose.AsyncImage(
-                                    model = currentUser?.profilePhotoUri,
-                                    contentDescription = "Profile Photo",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            } else {
-                                Text(
-                                    text = (currentUser?.name ?: "S").take(1).uppercase(),
-                                    color = TrueBlack,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = currentUser?.name ?: "Alex Vance",
-                                color = PureWhite,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = currentUser?.grade ?: "Grade 11 STEM",
-                                color = TextMutedGray,
-                                fontSize = 11.sp,
-                                maxLines = 1
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { showSettingsDialog = true },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = TextMutedGray,
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
                     }
                 }
@@ -642,7 +704,9 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                                     messageId = tutorState.messages.lastOrNull()?.id ?: "",
                                     query = query
                                 )
-                            }
+                            },
+                            selectedModelTier = selectedModelTier,
+                            onSelectModelTier = { viewModel.selectModelTier(it) }
                         )
                     }
 
@@ -793,6 +857,7 @@ fun DrawerNavItem(
         color = if (isSelected) ChatGptPillDark else Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .padding(vertical = 2.dp)
     ) {
         Row(
@@ -810,7 +875,9 @@ fun DrawerNavItem(
                 text = title,
                 color = if (isSelected) PureWhite else Color(0xFFDDDDDD),
                 fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

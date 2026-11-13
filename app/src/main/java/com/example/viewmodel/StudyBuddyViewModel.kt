@@ -208,11 +208,24 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         quizDao.getQuizzesForUser(uid)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Settings
+    // Model Selection & Settings
+    private val modelTierPrefs = application.getSharedPreferences("studybuddy_model_prefs", Context.MODE_PRIVATE)
+    val selectedModelTier = MutableStateFlow(
+        com.example.data.api.StudyBuddyModelTier.fromId(
+            modelTierPrefs.getString("selected_model_tier", null)
+        )
+    )
     val apiKeyInput = MutableStateFlow("")
     val apiKeyStatus = MutableStateFlow<String?>(null)
 
+    fun selectModelTier(tier: com.example.data.api.StudyBuddyModelTier) {
+        selectedModelTier.value = tier
+        GeminiClient.activeModelTier = tier
+        modelTierPrefs.edit().putString("selected_model_tier", tier.id).apply()
+    }
+
     init {
+        GeminiClient.activeModelTier = selectedModelTier.value
         // Load initial user or create guest user if already exists
         viewModelScope.launch {
             val user = userDao.getLatestUser()
@@ -554,10 +567,16 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             } else null
 
             var effectivePrompt = promptText
+            val activeTier = selectedModelTier.value
             val result: Result<ExplanationResult> = if (isVoiceNote && voiceAudioFilePath != null && java.io.File(voiceAudioFilePath).exists() && (promptText.isBlank() || promptText.startsWith("Voice note"))) {
                 // Multimodal audio recognition & response through GeminiClient
                 val audioFile = java.io.File(voiceAudioFilePath)
-                val audioResult = GeminiClient.transcribeAudioAndExplain(audioFile, state.selectedSubject, grade)
+                val audioResult = GeminiClient.transcribeAudioAndExplain(
+                    audioFile = audioFile,
+                    subject = state.selectedSubject,
+                    gradeLevel = grade,
+                    modelTier = activeTier
+                )
                 if (audioResult.isSuccess) {
                     val (transcription, explanation) = audioResult.getOrThrow()
                     effectivePrompt = transcription
@@ -569,12 +588,29 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     )
                     Result.success(explanation)
                 } else {
-                    GeminiClient.explainTopic(effectivePrompt, state.selectedSubject, grade, historyList)
+                    GeminiClient.explainTopic(
+                        topic = effectivePrompt,
+                        subject = state.selectedSubject,
+                        gradeLevel = grade,
+                        conversationHistory = historyList,
+                        modelTier = activeTier
+                    )
                 }
             } else if (image != null) {
-                GeminiClient.scanHomeworkImage(image, promptText, state.selectedSubject)
+                GeminiClient.scanHomeworkImage(
+                    bitmap = image,
+                    contextNote = promptText,
+                    subject = state.selectedSubject,
+                    modelTier = activeTier
+                )
             } else {
-                GeminiClient.explainTopic(promptText, state.selectedSubject, grade, historyList)
+                GeminiClient.explainTopic(
+                    topic = promptText,
+                    subject = state.selectedSubject,
+                    gradeLevel = grade,
+                    conversationHistory = historyList,
+                    modelTier = activeTier
+                )
             }
 
             result.onSuccess { explanation ->
@@ -1053,7 +1089,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         scannerState.value = scannerState.value.copy(isAnalyzing = true, error = null)
 
         viewModelScope.launch {
-            val result = GeminiClient.scanHomeworkImage(bitmap, note)
+            val result = GeminiClient.scanHomeworkImage(
+                bitmap = bitmap,
+                contextNote = note,
+                modelTier = selectedModelTier.value
+            )
             result.onSuccess { scanRes ->
                 scannerState.value = scannerState.value.copy(
                     isAnalyzing = false,
@@ -1149,7 +1189,13 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         )
 
         viewModelScope.launch {
-            val result = GeminiClient.generateQuiz(s.topic, s.subject, s.difficulty, s.questionCount)
+            val result = GeminiClient.generateQuiz(
+                topic = s.topic,
+                subject = s.subject,
+                difficulty = s.difficulty,
+                questionCount = s.questionCount,
+                modelTier = selectedModelTier.value
+            )
             result.onSuccess { questionsList ->
                 quizState.value = quizState.value.copy(
                     isGenerating = false,

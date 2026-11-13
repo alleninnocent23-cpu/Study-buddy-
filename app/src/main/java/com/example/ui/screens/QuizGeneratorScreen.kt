@@ -11,11 +11,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.GlassCard
@@ -106,6 +110,7 @@ fun QuizGeneratorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 840.dp)
+                .navigationBarsPadding()
                 .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
@@ -234,7 +239,10 @@ fun QuizGeneratorScreen(
                             text = "3. Number of Questions",
                             color = PureWhite,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -242,10 +250,11 @@ fun QuizGeneratorScreen(
                             border = androidx.compose.foundation.BorderStroke(1.dp, ChatGptPlusStarBlue)
                         ) {
                             Text(
-                                text = "50-Question Exam Available",
+                                text = "50-Q Exam Available",
                                 color = ChatGptPlusStarBlue,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
@@ -590,7 +599,7 @@ fun QuizGeneratorScreen(
                     // Navigation Buttons: [Previous (Black w/ white border)] [Submit (White)] [Next (Black w/ white border)]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Previous Button (Left) - Black with white border
@@ -603,18 +612,26 @@ fun QuizGeneratorScreen(
                                 containerColor = TrueBlack,
                                 contentColor = if (currentIndex > 0) PureWhite else TextSubtle
                             ),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
+                                .heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(15.dp),
                                 tint = if (currentIndex > 0) PureWhite else TextSubtle
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Prev", color = if (currentIndex > 0) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "Prev",
+                                color = if (currentIndex > 0) PureWhite else TextSubtle,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
 
                         // SUBMIT BUTTON IN THE CENTER - White background with black text/icon
@@ -625,14 +642,22 @@ fun QuizGeneratorScreen(
                                 contentColor = TrueBlack
                             ),
                             shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             modifier = Modifier
                                 .weight(1.3f)
-                                .height(44.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("quiz_submit_button")
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = TrueBlack)
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp), tint = TrueBlack)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Submit", color = TrueBlack, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Submit",
+                                color = TrueBlack,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
 
                         // Next Button (Right) - Black with white border
@@ -645,17 +670,25 @@ fun QuizGeneratorScreen(
                                 containerColor = TrueBlack,
                                 contentColor = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle
                             ),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("quiz_next_button")
                         ) {
-                            Text("Next", color = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Next",
+                                color = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(15.dp),
                                 tint = if (currentIndex < totalQuestions - 1) PureWhite else TextSubtle
                             )
                         }
@@ -967,10 +1000,15 @@ fun QuizGeneratorScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Detailed Answer & Explanation Review",
+                    text = "Detailed Review",
                     color = PureWhite,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
 
                 // Filter chips: All, Mistakes, Correct

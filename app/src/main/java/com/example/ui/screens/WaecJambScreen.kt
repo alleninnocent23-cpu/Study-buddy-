@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,6 +86,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -323,8 +326,9 @@ private fun ExamGetStartedView(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -1583,6 +1587,7 @@ private fun ModeCard(
  * Displays question, options A-D, countdown timer, step-by-step solution,
  * reasons why other options are wrong, and concept frequency.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveExamView(
     state: WaecJambState,
@@ -1628,44 +1633,56 @@ private fun ActiveExamView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         // Top Exam Header Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = onExit,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(DarkSurface)
             ) {
                 Icon(Icons.Default.Close, contentDescription = "Exit Exam", tint = PureWhite, modifier = Modifier.size(18.dp))
             }
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
                     text = if (distinctSubjects.size > 1) {
-                        "${question.exam.code} • ${question.subject} (Subject ${currentSubIdx + 1} of ${distinctSubjects.size})"
+                        "${question.exam.code} • ${question.subject} (${currentSubIdx + 1}/${distinctSubjects.size})"
                     } else {
                         "${question.exam.code} • ${question.subject}"
                     },
                     color = PureWhite,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
                 Text(
                     text = if (distinctSubjects.size > 1) {
-                        "Question $questionNumberInSub of $totalInCurrentSub in ${question.subject} • (Total Q${state.currentQuestionIndex + 1}/${state.questions.size})"
+                        "Q$questionNumberInSub/$totalInCurrentSub (${state.currentQuestionIndex + 1}/${state.questions.size})"
                     } else {
                         "Question ${state.currentQuestionIndex + 1} of ${state.questions.size}"
                     },
                     color = Color(0xFF38BDF8),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -1821,11 +1838,11 @@ private fun ActiveExamView(
                 .weight(1f)
                 .verticalScroll(scrollState)
         ) {
-            // Badges row: Year/Session, Topic, Difficulty, Frequency
-            Row(
+            // Badges row: Year/Session, Topic, Difficulty, Frequency (wraps cleanly on 320dp phones)
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
@@ -1836,6 +1853,8 @@ private fun ActiveExamView(
                         color = Color(0xFF67EEF8),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -1848,6 +1867,8 @@ private fun ActiveExamView(
                         text = question.topic,
                         color = PureWhite,
                         fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -1869,6 +1890,8 @@ private fun ActiveExamView(
                         },
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -2083,24 +2106,25 @@ private fun ActiveExamView(
                 .padding(vertical = 4.dp)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Stars,
                     contentDescription = null,
                     tint = PureWhite,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "XP METER",
+                    text = "XP",
                     color = PureWhite,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 LinearProgressIndicator(
                     progress = { examXpFraction },
                     modifier = Modifier
@@ -2110,12 +2134,14 @@ private fun ActiveExamView(
                     color = PureWhite,
                     trackColor = Color(0xFF282828)
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "+$earnedExamXp / $totalPossibleExamXp XP",
                     color = PureWhite,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -2126,7 +2152,7 @@ private fun ActiveExamView(
                 .fillMaxWidth()
                 .padding(top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Previous Button (Left) - Black with white border
             OutlinedButton(
@@ -2138,6 +2164,7 @@ private fun ActiveExamView(
                     containerColor = TrueBlack,
                     contentColor = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle
                 ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
@@ -2145,11 +2172,18 @@ private fun ActiveExamView(
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(15.dp),
                     tint = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Previous", color = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = "Prev",
+                    color = if (state.currentQuestionIndex > 0) PureWhite else TextSubtle,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             // SUBMIT BUTTON IN THE CENTER - White background with black text/icon
@@ -2160,14 +2194,22 @@ private fun ActiveExamView(
                     containerColor = PureWhite,
                     contentColor = TrueBlack
                 ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                 modifier = Modifier
-                    .weight(1.3f)
+                    .weight(1.25f)
                     .heightIn(min = 48.dp)
                     .testTag("submit_exam_button")
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Check, contentDescription = null, tint = TrueBlack, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Submit Exam", color = TrueBlack, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Submit",
+                    color = TrueBlack,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             // Next Button (Right) - Black with white border
@@ -2177,9 +2219,9 @@ private fun ActiveExamView(
                 else -> true
             }
             val nextButtonText = when {
-                isLastQuestionInSub && hasNextSubject && unansweredInCurrentSub > 0 -> "Finish ${question.subject.take(8)} ($unansweredInCurrentSub left)"
-                isLastQuestionInSub && hasNextSubject -> "Next: ${nextSubjectName?.take(10)} →"
-                state.currentQuestionIndex >= state.questions.size - 1 -> "Exam End"
+                isLastQuestionInSub && hasNextSubject && unansweredInCurrentSub > 0 -> "Finish (${unansweredInCurrentSub})"
+                isLastQuestionInSub && hasNextSubject -> nextSubjectName?.take(7) ?: "Next"
+                state.currentQuestionIndex >= state.questions.size - 1 -> "End"
                 else -> "Next"
             }
 
@@ -2215,6 +2257,7 @@ private fun ActiveExamView(
                     containerColor = TrueBlack,
                     contentColor = if (isNextEnabled) PureWhite else TextSubtle
                 ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
@@ -2225,13 +2268,14 @@ private fun ActiveExamView(
                     color = if (isNextEnabled) PureWhite else TextSubtle,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(15.dp),
                     tint = if (isNextEnabled) PureWhite else TextSubtle
                 )
             }
@@ -2255,6 +2299,8 @@ private fun ExamResultsView(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally

@@ -152,6 +152,8 @@ import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
 import com.example.ui.theme.TrueBlack
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.data.api.StudyBuddyModelTier
 import com.example.viewmodel.ChatMessage
 import com.example.viewmodel.MessageSender
 
@@ -541,6 +543,8 @@ fun ChatGptInputBar(
     onSend: () -> Unit,
     isListening: Boolean,
     isLoading: Boolean,
+    selectedModelTier: StudyBuddyModelTier = StudyBuddyModelTier.FREE,
+    onOpenModelSelector: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -703,17 +707,36 @@ fun ChatGptInputBar(
                         .padding(start = 8.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Study Buddy Bot Image at the left side of the type bar
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_study_buddy_avatar),
-                        contentDescription = "Study Buddy",
+                    // Study Buddy Bot Logo at the left side of the type bar (tap to select StudyBuddy model)
+                    val tierDotColor = when (selectedModelTier) {
+                        StudyBuddyModelTier.FREE -> PureWhite
+                        StudyBuddyModelTier.PLUS -> ChatGptPlusStarBlue
+                        StudyBuddyModelTier.MAX -> Color(0xFFC084FC)
+                    }
+                    Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onOpenModelSelector)
                             .testTag("chat_input_bot_image"),
-                        contentScale = ContentScale.Fit
-                    )
-
-                    Spacer(modifier = Modifier.width(2.dp))
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_study_buddy_avatar),
+                            contentDescription = "Select StudyBuddy AI Model (${selectedModelTier.displayName})",
+                            modifier = Modifier.size(32.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(tierDotColor)
+                                .border(1.5.dp, ChatGptPillDark, CircleShape)
+                        )
+                    }
 
                     // + Plus Button
                     IconButton(
@@ -734,15 +757,16 @@ fun ChatGptInputBar(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 6.dp),
+                            .padding(horizontal = 4.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (text.isEmpty()) {
                             Text(
                                 text = if (hasActiveMessages) "Reply to Study Buddy" else "Ask Study Buddy",
                                 color = ChatGptInputPlaceholder,
-                                fontSize = 15.sp,
-                                maxLines = 1
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         BasicTextField(
@@ -2455,7 +2479,7 @@ fun WebImageGalleryView(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "No web diagrams found for this concept.",
+                        text = "No relevant verified images found for this query.",
                         color = TextMutedGray,
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)

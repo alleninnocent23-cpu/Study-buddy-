@@ -4,30 +4,14 @@ import android.util.Log
 import com.example.data.model.WebSearchResultImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 
 /**
  * Real-time Online Image Search & Retrieval Service for StudyBuddy.
- * Searches and retrieves verified high-resolution educational diagrams, photographs,
- * and visual references from Wikimedia Commons and Wikipedia public media APIs.
+ * Delegates query refinement, multi-provider retrieval, relevance scoring,
+ * URL/dimension validation, and deduplication to IntelligentImageSearch.
  */
 object OnlineImageSearchService {
     private const val TAG = "OnlineImageSearch"
-
-    private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-
-    private const val USER_AGENT = "StudyBuddy-EducationalApp/1.0 (Android; contact: educational-app@studybuddy.ng)"
 
     /**
      * Common educational topics where accurate scientific diagrams
@@ -117,52 +101,12 @@ object OnlineImageSearchService {
      * Cleans the user's conversational prompt into a focused web image search query.
      */
     fun extractSearchQuery(prompt: String, subject: String = ""): String {
-        var query = prompt.trim()
-
-        val phrasesToRemove = listOf(
-            "can you please show me an image of", "can you please show me a picture of",
-            "please show me an image of", "please show me a picture of",
-            "show me an image of", "show me a picture of", "show me pictures of", "show me photos of",
-            "show me the diagram of", "show me a diagram of", "show me diagrams of", "show me diagram of",
-            "show me an illustration of", "show me an example of", "show me",
-            "can you find a picture of", "can you find an image of", "can you find",
-            "find a picture of", "find an image of", "find photos of", "find pictures of", "find a photo of",
-            "find me an image of", "find me a picture of", "find",
-            "i need an image of", "i need a picture of", "i need photos of", "i need a diagram of",
-            "give me an image of", "give me a picture of", "give me a photo of",
-            "search for images of", "search for an image of", "search for pictures of", "search for a picture of",
-            "search for", "search image of", "search picture of",
-            "look up picture of", "look up an image of", "look up image of", "look up photo of",
-            "picture of", "photo of", "image of", "diagram of", "illustration of",
-            "pictures of", "photos of", "images of", "diagrams of",
-            "what does a", "what does an", "look like", "looks like",
-            "what is a", "what is an", "explain"
-        )
-
-        for (phrase in phrasesToRemove) {
-            val idx = query.indexOf(phrase, ignoreCase = true)
-            if (idx >= 0) {
-                query = query.replaceRange(idx, idx + phrase.length, " ")
-            }
-        }
-
-        // Clean punctuation
-        query = query.replace(Regex("[?!.,;:'\"()\\[\\]{}]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        if (query.isBlank()) {
-            query = prompt.replace(Regex("[?!.,;:'\"()\\[\\]{}]"), " ").trim()
-        }
-
-        return query
+        return ImageQueryProcessor.process(prompt, subject).primaryQuery
     }
 
     /**
-     * Executes online image retrieval with automatic multi-provider fallback:
-     * 1. Primary: Wikimedia Commons search API (high-resolution, verified educational & encyclopedic media).
-     * 2. Fallback: Wikipedia Page Media API (in case query is an article entity).
-     * 3. Fallback: Refined diagram keyword search for STEM topics.
+     * Executes intelligent multi-provider online image retrieval with relevance scoring,
+     * validation, deduplication, and domain-specific diagram support.
      */
     suspend fun searchImages(
         rawQuery: String,
@@ -170,245 +114,21 @@ object OnlineImageSearchService {
         subject: String = ""
     ): Result<List<WebSearchResultImage>> = withContext(Dispatchers.IO) {
         try {
-            val query = extractSearchQuery(rawQuery, subject)
-            if (query.isBlank()) {
+            val processed = ImageQueryProcessor.process(rawQuery, subject)
+            if (processed.primaryQuery.isBlank()) {
                 return@withContext Result.success(emptyList())
             }
 
-            Log.d(TAG, "Initiating web image search for query='$query' (raw='$rawQuery')")
-
-            // 1. Primary Search: Wikimedia Commons API
-            var results = queryWikimediaCommons(query, maxResults)
-
-            // 2. If results are empty and this looks like a scientific concept, try appending "diagram"
-            if (results.isEmpty() && !query.contains("diagram", ignoreCase = true)) {
-                val isEducational = isEducationalDiagramBeneficial(rawQuery, subject) ||
-                        subject.equals("Science", ignoreCase = true) ||
-                        subject.equals("Biology", ignoreCase = true) ||
-                        subject.equals("Physics", ignoreCase = true)
-
-                if (isEducational) {
-                    val refinedQuery = "$query diagram"
-                    Log.d(TAG, "Retrying with educational diagram refinement: '$refinedQuery'")
-                    results = queryWikimediaCommons(refinedQuery, maxResults)
-                }
-            }
-
-            // 3. Fallback: Wikipedia Media API if Commons returned few/no items
-            if (results.isEmpty()) {
-                Log.d(TAG, "Querying Wikipedia Media fallback for '$query'")
-                results = queryWikipediaMedia(query, maxResults)
-            }
-
-            Log.d(TAG, "Web image search completed: found ${results.size} verified images")
+            Log.d(TAG, "Initiating intelligent image search for query='${processed.primaryQuery}' (variants=${processed.queryVariants})")
+            val results = ImageProviderManager.searchAcrossProviders(
+                processedQuery = processed,
+                maxResults = maxResults
+            )
+            Log.d(TAG, "Intelligent image search completed: ${results.size} verified relevant images")
             Result.success(results)
         } catch (e: Exception) {
             Log.e(TAG, "Error performing web image search", e)
             Result.failure(e)
         }
-    }
-
-    /**
-     * Queries Wikimedia Commons Media Search API for rich images and licensing metadata.
-     */
-    private fun queryWikimediaCommons(
-        query: String,
-        limit: Int
-    ): List<WebSearchResultImage> {
-        val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-        val url = "https://commons.wikimedia.org/w/api.php?" +
-                "action=query&format=json&generator=search&gsrnamespace=6" +
-                "&gsrsearch=$encodedQuery" +
-                "&gsrlimit=$limit" +
-                "&prop=imageinfo" +
-                "&iiprop=url|size|extmetadata" +
-                "&iiurlwidth=960"
-
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            Log.w(TAG, "Wikimedia Commons HTTP failed with code: ${response.code}")
-            return emptyList()
-        }
-
-        val body = response.body?.string() ?: return emptyList()
-        val json = JSONObject(body)
-
-        val queryObj = json.optJSONObject("query") ?: return emptyList()
-        val pagesObj = queryObj.optJSONObject("pages") ?: return emptyList()
-
-        val results = mutableListOf<WebSearchResultImage>()
-        val keys = pagesObj.keys()
-
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val page = pagesObj.optJSONObject(key) ?: continue
-
-            val rawTitle = page.optString("title", "Educational Image")
-            val cleanTitle = cleanImageTitle(rawTitle)
-
-            val imageInfoArray = page.optJSONArray("imageinfo") ?: continue
-            if (imageInfoArray.length() == 0) continue
-
-            val info = imageInfoArray.getJSONObject(0)
-            val originalUrl = info.optString("url", "")
-            val thumbUrl = info.optString("thumburl", originalUrl)
-            val sourcePageUrl = info.optString("descriptionurl", "https://commons.wikimedia.org")
-
-            val width = info.optInt("width", 0)
-            val height = info.optInt("height", 0)
-            val size = info.optLong("size", 0L)
-
-            // Extract rich metadata (Artist, License, Description)
-            val extMetadata = info.optJSONObject("extmetadata")
-            val artistRaw = extMetadata?.optJSONObject("Artist")?.optString("value")
-                ?: extMetadata?.optJSONObject("Credit")?.optString("value")
-            val cleanArtist = stripHtml(artistRaw)
-
-            val licenseName = extMetadata?.optJSONObject("LicenseShortName")?.optString("value")
-                ?: extMetadata?.optJSONObject("UsageTerms")?.optString("value")
-                ?: "Creative Commons / Public Domain"
-
-            val licenseUrl = extMetadata?.optJSONObject("LicenseUrl")?.optString("value")
-
-            val descRaw = extMetadata?.optJSONObject("ImageDescription")?.optString("value")
-            val cleanDesc = stripHtml(descRaw)
-
-            // Filter out audio or video files (e.g. .ogg, .ogv, .webm)
-            if (isSupportedVisualImage(originalUrl) && thumbUrl.isNotBlank()) {
-                results.add(
-                    WebSearchResultImage(
-                        title = cleanTitle,
-                        thumbnailUrl = thumbUrl,
-                        originalUrl = originalUrl,
-                        sourceWebsite = "Wikimedia Commons",
-                        sourcePageUrl = sourcePageUrl,
-                        author = cleanArtist.ifBlank { "Wikimedia Contributor" },
-                        license = licenseName,
-                        licenseUrl = licenseUrl,
-                        width = width,
-                        height = height,
-                        sizeBytes = size,
-                        description = cleanDesc.take(180)
-                    )
-                )
-            }
-        }
-
-        return results
-    }
-
-    /**
-     * Fallback: Queries Wikipedia Page Images & Extracts API
-     * Useful for specific entities like cars, inventions, historical figures, or places.
-     */
-    private fun queryWikipediaMedia(
-        query: String,
-        limit: Int
-    ): List<WebSearchResultImage> {
-        val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-        val url = "https://en.wikipedia.org/w/api.php?" +
-                "action=query&format=json&generator=search" +
-                "&gsrsearch=$encodedQuery" +
-                "&gsrlimit=$limit" +
-                "&prop=pageimages|extracts" +
-                "&exintro=1&explaintext=1&exchars=140" +
-                "&pithumbsize=960"
-
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        if (!response.isSuccessful) return emptyList()
-
-        val body = response.body?.string() ?: return emptyList()
-        val json = JSONObject(body)
-
-        val queryObj = json.optJSONObject("query") ?: return emptyList()
-        val pagesObj = queryObj.optJSONObject("pages") ?: return emptyList()
-
-        val results = mutableListOf<WebSearchResultImage>()
-        val keys = pagesObj.keys()
-
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val page = pagesObj.optJSONObject(key) ?: continue
-
-            val pageTitle = page.optString("title", query)
-            val thumbObj = page.optJSONObject("thumbnail") ?: continue
-            val thumbUrl = thumbObj.optString("source", "")
-            val width = thumbObj.optInt("width", 0)
-            val height = thumbObj.optInt("height", 0)
-            val extract = page.optString("extract", "")
-            val pageid = page.optInt("pageid", 0)
-            val pageUrl = "https://en.wikipedia.org/?curid=$pageid"
-
-            if (thumbUrl.isNotBlank() && isSupportedVisualImage(thumbUrl)) {
-                results.add(
-                    WebSearchResultImage(
-                        title = pageTitle,
-                        thumbnailUrl = thumbUrl,
-                        originalUrl = thumbUrl,
-                        sourceWebsite = "Wikipedia",
-                        sourcePageUrl = pageUrl,
-                        author = "Wikipedia Editors",
-                        license = "CC BY-SA 4.0",
-                        licenseUrl = "https://creativecommons.org/licenses/by-sa/4.0/",
-                        width = width,
-                        height = height,
-                        sizeBytes = 0L,
-                        description = extract
-                    )
-                )
-            }
-        }
-
-        return results
-    }
-
-    /**
-     * Cleans titles like "File:Human_heart_diagram-en.svg" -> "Human heart diagram"
-     */
-    private fun cleanImageTitle(raw: String): String {
-        return raw.removePrefix("File:")
-            .removePrefix("Image:")
-            .replace(Regex("\\.(svg|jpg|jpeg|png|webp|gif)$", RegexOption.IGNORE_CASE), "")
-            .replace('_', ' ')
-            .trim()
-    }
-
-    /**
-     * Strips HTML markup like <a href="...">name</a>, <i>, <br> to clean text.
-     */
-    private fun stripHtml(html: String?): String {
-        if (html.isNullOrBlank()) return ""
-        return html
-            .replace(Regex("<[^>]*>"), "")
-            .replace("&amp;", "&")
-            .replace("&quot;", "\"")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&#39;", "'")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-
-    private fun isSupportedVisualImage(url: String): Boolean {
-        val lower = url.lowercase()
-        return lower.contains(".jpg") ||
-                lower.contains(".jpeg") ||
-                lower.contains(".png") ||
-                lower.contains(".webp") ||
-                lower.contains(".svg") ||
-                lower.contains("wikimedia.org") ||
-                lower.contains("wikipedia.org")
     }
 }

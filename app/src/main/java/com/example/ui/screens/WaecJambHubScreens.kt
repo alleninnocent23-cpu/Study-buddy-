@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -168,8 +171,9 @@ fun WaecHubView(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // --- TOP HEADER ---
         Row(
@@ -595,16 +599,20 @@ fun WaecHubView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    ) {
                         Text(
-                            text = "NUMBER OF QUESTIONS PER SUBJECT",
+                            text = "QUESTIONS PER SUBJECT",
                             color = PureWhite,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.4.sp
                         )
                         Text(
-                            text = "10 to 50 questions for each subject (${state.config.selectedSubjects.size} subjects)",
+                            text = "10 to 50 Qs each (${state.config.selectedSubjects.size} subjects)",
                             color = TextMutedGray,
                             fontSize = 11.sp
                         )
@@ -615,11 +623,12 @@ fun WaecHubView(
                         border = BorderStroke(1.dp, Color(0xFF38BDF8))
                     ) {
                         Text(
-                            text = "${state.config.questionCount} Qs / Sub (${state.config.selectedSubjects.size * state.config.questionCount} Total)",
+                            text = "${state.config.questionCount} Qs (${state.config.selectedSubjects.size * state.config.questionCount})",
                             color = Color(0xFF38BDF8),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -683,7 +692,7 @@ fun WaecHubView(
             enabled = state.config.selectedSubjects.size in 4..10,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .heightIn(min = 52.dp)
                 .testTag("waec_start_practice_button"),
             colors = ButtonDefaults.buttonColors(
                 containerColor = PureWhite,
@@ -694,10 +703,11 @@ fun WaecHubView(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = "START WAEC PRACTICE • ${state.config.questionCount} Qs PER SUBJECT (${state.config.selectedSubjects.size * state.config.questionCount} QUESTIONS)",
-                fontSize = 13.sp,
+                text = "START WAEC PRACTICE • ${state.config.questionCount} Qs/SUB (${state.config.selectedSubjects.size * state.config.questionCount} Qs)",
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.3.sp,
+                textAlign = TextAlign.Center
             )
         }
 
@@ -782,8 +792,9 @@ fun JambHubView(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // --- TOP HEADER ---
         Row(
@@ -1146,16 +1157,20 @@ fun JambHubView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    ) {
                         Text(
-                            text = "NUMBER OF QUESTIONS PER SUBJECT",
+                            text = "QUESTIONS PER SUBJECT",
                             color = PureWhite,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.4.sp
                         )
                         Text(
-                            text = "10 to 50 questions for each subject (${state.config.selectedSubjects.size} subjects)",
+                            text = "10 to 50 Qs each (${state.config.selectedSubjects.size} subjects)",
                             color = TextMutedGray,
                             fontSize = 11.sp
                         )
@@ -1166,11 +1181,12 @@ fun JambHubView(
                         border = BorderStroke(1.dp, Color(0xFF38BDF8))
                     ) {
                         Text(
-                            text = "${state.config.questionCount} Qs / Sub (${state.config.selectedSubjects.size * state.config.questionCount} Total)",
+                            text = "${state.config.questionCount} Qs (${state.config.selectedSubjects.size * state.config.questionCount})",
                             color = Color(0xFF38BDF8),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -1234,7 +1250,7 @@ fun JambHubView(
             enabled = state.config.selectedSubjects.size in 4..10,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .heightIn(min = 52.dp)
                 .testTag("jamb_start_practice_button"),
             colors = ButtonDefaults.buttonColors(
                 containerColor = PureWhite,
@@ -1245,10 +1261,11 @@ fun JambHubView(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = "START JAMB CBT PRACTICE • ${state.config.questionCount} Qs PER SUBJECT (${state.config.selectedSubjects.size * state.config.questionCount} QUESTIONS)",
-                fontSize = 13.sp,
+                text = "START JAMB CBT • ${state.config.questionCount} Qs/SUB (${state.config.selectedSubjects.size * state.config.questionCount} Qs)",
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.3.sp,
+                textAlign = TextAlign.Center
             )
         }
 
@@ -1315,7 +1332,8 @@ fun WaecSubjectsDirectoryView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // --- TOP HEADER ---
         Row(
@@ -1527,8 +1545,9 @@ fun StudyNoteFormulaView(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // --- TOP HEADER ---
         Row(
@@ -1790,8 +1809,8 @@ fun WaecJambUnifiedBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. AI
@@ -1799,7 +1818,8 @@ fun WaecJambUnifiedBottomNav(
                 icon = Icons.Default.AutoAwesome,
                 label = "AI",
                 isSelected = false,
-                onClick = onNavigateToAi
+                onClick = onNavigateToAi,
+                modifier = Modifier.weight(1f)
             )
 
             // 2. Study
@@ -1807,7 +1827,8 @@ fun WaecJambUnifiedBottomNav(
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 label = "Study",
                 isSelected = activeSubView == WaecHubSubView.SUBJECTS,
-                onClick = onNavigateToStudy
+                onClick = onNavigateToStudy,
+                modifier = Modifier.weight(1f)
             )
 
             // 3. WAEC
@@ -1815,7 +1836,8 @@ fun WaecJambUnifiedBottomNav(
                 icon = Icons.Default.EmojiEvents,
                 label = "WAEC",
                 isSelected = activeSubView == WaecHubSubView.WAEC_HUB,
-                onClick = onNavigateToWaec
+                onClick = onNavigateToWaec,
+                modifier = Modifier.weight(1f)
             )
 
             // 4. JAMB
@@ -1823,7 +1845,8 @@ fun WaecJambUnifiedBottomNav(
                 icon = Icons.Default.School,
                 label = "JAMB",
                 isSelected = activeSubView == WaecHubSubView.JAMB_HUB,
-                onClick = onNavigateToJamb
+                onClick = onNavigateToJamb,
+                modifier = Modifier.weight(1f)
             )
 
             // 5. StudyNote
@@ -1831,7 +1854,8 @@ fun WaecJambUnifiedBottomNav(
                 icon = Icons.Default.Description,
                 label = "StudyNote",
                 isSelected = activeSubView == WaecHubSubView.FORMULAS,
-                onClick = onNavigateToStudyNote
+                onClick = onNavigateToStudyNote,
+                modifier = Modifier.weight(1f)
             )
         }
     }
@@ -1842,13 +1866,16 @@ private fun BottomNavItem(
     icon: ImageVector,
     label: String,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
+            .heightIn(min = 48.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 2.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
         Icon(
             imageVector = icon,
@@ -1861,7 +1888,9 @@ private fun BottomNavItem(
             text = label,
             color = if (isSelected) PureWhite else Color(0xFF666666),
             fontSize = 10.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         if (isSelected) {
             Spacer(modifier = Modifier.height(2.dp))

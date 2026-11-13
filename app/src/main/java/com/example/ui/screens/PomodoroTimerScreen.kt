@@ -16,18 +16,23 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.painterResource
 import com.example.R
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,6 +80,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -145,39 +151,54 @@ fun PomodoroTimerScreen(
         label = "pomodoro_progress"
     )
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TrueBlack)
-            .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(TrueBlack),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 840.dp)
+                .navigationBarsPadding()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         // Top Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
                 Text(
                     text = "Pomodoro Study Focus",
                     color = PureWhite,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp
+                    letterSpacing = (-0.5).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Structured study intervals with push notification alerts",
+                    text = "Structured study intervals with push alerts",
                     color = TextMutedGray,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             IconButton(
                 onClick = { showConfigDialog = true },
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(ChatGptPillDark)
                     .testTag("pomodoro_open_settings_button")
@@ -241,7 +262,10 @@ fun PomodoroTimerScreen(
 
         // Circular Timer View
         Box(
-            modifier = Modifier.size(260.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .widthIn(min = 200.dp, max = 260.dp)
+                .aspectRatio(1f),
             contentAlignment = Alignment.Center
         ) {
             // Circular canvas ring
@@ -350,7 +374,8 @@ fun PomodoroTimerScreen(
 
         // Quick Minute Adjustments (-1m, +1m, +5m)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
@@ -358,31 +383,34 @@ fun PomodoroTimerScreen(
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, BorderLight),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = PureWhite),
-                modifier = Modifier.height(34.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.heightIn(min = 38.dp)
             ) {
-                Text("-1 min", fontSize = 12.sp)
+                Text("-1 min", fontSize = 12.sp, maxLines = 1)
             }
             OutlinedButton(
                 onClick = { onAdjustMinutes(1) },
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, BorderLight),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = PureWhite),
-                modifier = Modifier.height(34.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.heightIn(min = 38.dp)
             ) {
-                Text("+1 min", fontSize = 12.sp)
+                Text("+1 min", fontSize = 12.sp, maxLines = 1)
             }
             OutlinedButton(
                 onClick = { onAdjustMinutes(5) },
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, BorderLight),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = PureWhite),
-                modifier = Modifier.height(34.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.heightIn(min = 38.dp)
             ) {
-                Text("+5 min", fontSize = 12.sp)
+                Text("+5 min", fontSize = 12.sp, maxLines = 1)
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
         // Main Timer Actions (Play/Pause, Reset, Skip)
         Row(
@@ -394,7 +422,7 @@ fun PomodoroTimerScreen(
             IconButton(
                 onClick = onReset,
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(50.dp)
                     .clip(CircleShape)
                     .background(DarkSurface)
                     .border(1.dp, BorderLight, CircleShape)
@@ -404,11 +432,11 @@ fun PomodoroTimerScreen(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Reset Timer",
                     tint = PureWhite,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             // Primary Play / Pause Button
             Button(
@@ -420,33 +448,37 @@ fun PomodoroTimerScreen(
                     containerColor = PureWhite,
                     contentColor = TrueBlack
                 ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 modifier = Modifier
-                    .height(60.dp)
-                    .width(180.dp)
+                    .weight(1f)
+                    .widthIn(max = 180.dp)
+                    .height(56.dp)
                     .testTag("pomodoro_toggle_play_button")
             ) {
                 Icon(
                     imageVector = if (state.isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (state.isRunning) "Pause" else "Start",
                     tint = TrueBlack,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(24.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (state.isRunning) "Pause" else "Start Focus",
                     color = TrueBlack,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.width(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             // Skip Button
             IconButton(
                 onClick = onSkip,
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(50.dp)
                     .clip(CircleShape)
                     .background(DarkSurface)
                     .border(1.dp, BorderLight, CircleShape)
@@ -456,7 +488,7 @@ fun PomodoroTimerScreen(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Skip Session",
                     tint = PureWhite,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -569,6 +601,7 @@ fun PomodoroTimerScreen(
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+        }
     }
 
     // Config Dialog Modal

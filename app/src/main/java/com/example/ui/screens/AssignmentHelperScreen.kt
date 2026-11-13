@@ -89,6 +89,8 @@ import com.example.ui.components.VoiceModeDialog
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.ChatGptPillDark
+import com.example.data.api.StudyBuddyModelTier
+import com.example.ui.components.ModelSelectorDialog
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMutedGray
@@ -132,6 +134,8 @@ fun AssignmentHelperScreen(
     onDownloadWebImage: (com.example.data.model.WebSearchResultImage) -> Unit = {},
     onCopyImageLink: (String) -> Unit = {},
     onRetryImageSearch: (String) -> Unit = {},
+    selectedModelTier: StudyBuddyModelTier = StudyBuddyModelTier.FREE,
+    onSelectModelTier: (StudyBuddyModelTier) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -142,6 +146,7 @@ fun AssignmentHelperScreen(
     var showGetPlusDialog by remember { mutableStateOf(false) }
     var showVoiceModeDialog by remember { mutableStateOf(false) }
     var showSubjectFilterDialog by remember { mutableStateOf(false) }
+    var showModelSelectorDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -235,6 +240,14 @@ fun AssignmentHelperScreen(
                 showSubjectFilterDialog = false
             },
             onDismiss = { showSubjectFilterDialog = false }
+        )
+    }
+
+    if (showModelSelectorDialog) {
+        ModelSelectorDialog(
+            selectedTier = selectedModelTier,
+            onSelectTier = onSelectModelTier,
+            onDismiss = { showModelSelectorDialog = false }
         )
     }
 
@@ -383,9 +396,29 @@ fun AssignmentHelperScreen(
                 onOpenFullSelector = { showSubjectFilterDialog = true }
             )
 
+            // Personalized Subject Focus Indicator (when chat is empty)
+            if (state.messages.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 840.dp)
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        SubjectPersonalizationBadge(
+                            selectedSubject = state.selectedSubject,
+                            onOpenSelector = { showSubjectFilterDialog = true }
+                        )
+                    }
+                }
+            }
+
             // Middle Content Area
             if (state.messages.isEmpty()) {
-                // Screenshot 1: Blank OLED Canvas with suggestion rows at the bottom
+                // Blank OLED Canvas with suggestion rows at the bottom
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -397,14 +430,6 @@ fun AssignmentHelperScreen(
                             .fillMaxSize()
                             .widthIn(max = 840.dp)
                     ) {
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        SubjectPersonalizationBadge(
-                            selectedSubject = state.selectedSubject,
-                            onOpenSelector = { showSubjectFilterDialog = true },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-
                         Spacer(modifier = Modifier.weight(1f))
 
                         ChatGptEmptyPrompts(
@@ -615,46 +640,14 @@ fun AssignmentHelperScreen(
                 onSend = { onSendChatMessage(null) },
                 isListening = isListening,
                 isLoading = state.isLoading,
+                selectedModelTier = selectedModelTier,
+                onOpenModelSelector = { showModelSelectorDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 840.dp)
             )
         }
     }
-
-        // Floating Scroll to Bottom Button matching Screenshot 2
-        val showScrollToBottom by remember {
-            derivedStateOf {
-                listState.firstVisibleItemIndex < (state.messages.size - 2).coerceAtLeast(0)
-            }
-        }
-        AnimatedVisibility(
-            visible = showScrollToBottom && state.messages.isNotEmpty(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 76.dp)
-                .imePadding()
-        ) {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        listState.animateScrollToItem(state.messages.size - 1)
-                    }
-                },
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF222630))
-                    .border(1.dp, Color(0xFF383D4A), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowDownward,
-                    contentDescription = "Scroll to bottom",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
     }
 
     CameraCaptureDialog(

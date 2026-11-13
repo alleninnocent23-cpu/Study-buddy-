@@ -368,7 +368,8 @@ fun WebImageCard(
         color = DarkSurface,
         border = BorderStroke(1.dp, BorderSubtle),
         modifier = modifier
-            .width(260.dp)
+            .widthIn(min = 190.dp, max = 250.dp)
+            .width(230.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable { onOpenFullscreen() }
     ) {

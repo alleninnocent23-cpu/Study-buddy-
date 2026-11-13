@@ -55,28 +55,18 @@ data class ApiKeyEntry(
     val averageLatencyMs: Long = 0L
 ) {
     val maskedKey: String
-        get() {
-            val trimmed = key.trim()
-            return when {
-                trimmed.length <= 8 -> "••••••••"
-                trimmed.startsWith("AIzaSy") -> "AIzaSy••••" + trimmed.takeLast(4)
-                trimmed.startsWith("sk-or-") -> "sk-or-••••" + trimmed.takeLast(4)
-                trimmed.startsWith("gsk_") -> "gsk_••••" + trimmed.takeLast(4)
-                else -> trimmed.take(4) + "••••••••" + trimmed.takeLast(4)
-            }
-        }
+        get() = APIKeyManager.maskKey(key)
 
-    fun isAvailableNow(): Boolean {
+    fun isAvailableNow(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!isEnabled) return false
+        if (key.isBlank()) return false
         if (status == KeyHealthStatus.INVALID) return false
-        val now = System.currentTimeMillis()
-        return now >= cooldownUntilTimestamp
+        return nowMs >= cooldownUntilTimestamp
     }
 
-    fun cooldownRemainingSeconds(): Int {
-        val now = System.currentTimeMillis()
-        return if (cooldownUntilTimestamp > now) {
-            ((cooldownUntilTimestamp - now) / 1000).toInt()
+    fun cooldownRemainingSeconds(nowMs: Long = System.currentTimeMillis()): Int {
+        return if (cooldownUntilTimestamp > nowMs) {
+            ((cooldownUntilTimestamp - nowMs) / 1000).toInt()
         } else 0
     }
 }
@@ -94,22 +84,10 @@ data class ProviderHealthSummary(
 )
 
 /**
- * PRODUCTION-GRADE ADVANCED AI API MANAGEMENT & AUTOMATIC FAILOVER SYSTEM
- *
- * Capabilities:
- * - Multi-key management from the same provider (e.g. Gemini Primary, Gemini Secondary)
- * - Multi-provider intelligent failover (Gemini -> OpenRouter -> Groq -> Custom)
- * - Automatic detection of HTTP 429 (Rate Limit), 401/403 (Invalid Key), 408/500/502/503/504 (Server issues)
- * - Exponential cooldown backoff to avoid hammering exhausted keys
- * - Live Health & Metrics monitoring (Dashboard)
- * - Thread-safe request dispatching with seamless retries
- * - Strict security: full keys are never exposed in UI or logs
+ * Centralized AI API key rotation, quota tracking, health monitoring, and automatic failover coordinator.
  */
 object AiApiManager {
     private const val TAG = "AiApiManager"
-    private const val PREFS_NAME = "studybuddy_ai_api_manager_prefs"
-    private const val KEY_CONFIGURED_KEYS_JSON = "configured_keys_json"
-    private const val KEY_ACTIVE_PROVIDER = "active_provider"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -128,102 +106,36 @@ object AiApiManager {
     private val _lastFailoverEvent = MutableStateFlow<String?>(null)
     val lastFailoverEvent: StateFlow<String?> = _lastFailoverEvent.asStateFlow()
 
-    private var sharedPreferences: SharedPreferences? = null
+    private var appContext: Context? = null
 
     fun initialize(context: Context) {
-        if (sharedPreferences != null) return
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        sharedPreferences = prefs
-
-        val loadedKeys = loadKeysFromStorage(prefs)
-        val initialList = if (loadedKeys.isNotEmpty()) {
-            loadedKeys
-        } else {
-            // Seed with BuildConfig or environment key if available
-            val defaultBuildKey = try {
-                BuildConfig.GEMINI_API_KEY
-            } catch (e: Throwable) {
-                ""
-            }
-            val validKey = if (defaultBuildKey.isNotBlank() && defaultBuildKey != "MY_GEMINI_API_KEY") {
-                defaultBuildKey
-            } else ""
-
-            listOf(
-                ApiKeyEntry(
-                    id = "gemini-primary-built-in",
-                    provider = AiProviderType.GEMINI,
-                    key = validKey,
-                    label = "Gemini Primary (AI Studio Default)",
-                    priority = 1,
-                    isEnabled = true
-                )
-            )
-        }
-
-        _keysList.value = initialList
-        _activeKeyId.value = initialList.firstOrNull { it.isAvailableNow() }?.id ?: initialList.firstOrNull()?.id
+        if (appContext != null && _keysList.value.isNotEmpty()) return
+        appContext = context.applicationContext ?: context
+        val loaded = APIKeyManager.initialize(appContext!!)
+        val combined = attachFirebaseAiLogicIfAvailable(loaded)
+        combined.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+        _keysList.value = combined
+        _activeKeyId.value = combined.firstOrNull { it.isAvailableNow() }?.id ?: combined.firstOrNull()?.id
     }
 
-    private fun loadKeysFromStorage(prefs: SharedPreferences): List<ApiKeyEntry> {
-        val json = prefs.getString(KEY_CONFIGURED_KEYS_JSON, null) ?: return emptyList()
-        val list = mutableListOf<ApiKeyEntry>()
-        try {
-            val array = JSONArray(json)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val provider = try {
-                    AiProviderType.valueOf(obj.getString("provider"))
-                } catch (e: Exception) {
-                    AiProviderType.GEMINI
-                }
-                list.add(
-                    ApiKeyEntry(
-                        id = obj.optString("id", UUID.randomUUID().toString()),
-                        provider = provider,
-                        key = obj.getString("key"),
-                        label = obj.optString("label", "${provider.displayName} Key"),
-                        priority = obj.optInt("priority", 1),
-                        isEnabled = obj.optBoolean("isEnabled", true),
-                        totalRequests = obj.optInt("totalRequests", 0),
-                        successfulRequests = obj.optInt("successfulRequests", 0),
-                        failedRequests = obj.optInt("failedRequests", 0),
-                        rateLimit429Errors = obj.optInt("rateLimit429Errors", 0),
-                        lastSuccessTimestamp = obj.optLong("lastSuccessTimestamp", 0L),
-                        averageLatencyMs = obj.optLong("averageLatencyMs", 0L)
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load keys from storage", e)
-        }
-        return list
+    private fun attachFirebaseAiLogicIfAvailable(existing: List<ApiKeyEntry>): List<ApiKeyEntry> {
+        if (!FirebaseAiLogicService.isAvailable(appContext)) return existing
+        if (existing.any { it.id == FirebaseAiLogicService.VIRTUAL_KEY_ID }) return existing
+
+        val hasRealGeminiKey = existing.any { it.provider == AiProviderType.GEMINI && it.key.isNotBlank() }
+        val firebaseEntry = ApiKeyEntry(
+            id = FirebaseAiLogicService.VIRTUAL_KEY_ID,
+            provider = AiProviderType.GEMINI,
+            key = FirebaseAiLogicService.VIRTUAL_KEY_SENTINEL,
+            label = "StudyBuddy AI (Firebase App Check)",
+            priority = if (hasRealGeminiKey) 2 else 1,
+            isEnabled = true
+        )
+        return (existing + firebaseEntry).sortedBy { it.priority }
     }
 
     private fun saveKeysToStorage() {
-        val prefs = sharedPreferences ?: return
-        try {
-            val array = JSONArray()
-            _keysList.value.forEach { entry ->
-                array.put(JSONObject().apply {
-                    put("id", entry.id)
-                    put("provider", entry.provider.name)
-                    put("key", entry.key)
-                    put("label", entry.label)
-                    put("priority", entry.priority)
-                    put("isEnabled", entry.isEnabled)
-                    put("totalRequests", entry.totalRequests)
-                    put("successfulRequests", entry.successfulRequests)
-                    put("failedRequests", entry.failedRequests)
-                    put("rateLimit429Errors", entry.rateLimit429Errors)
-                    put("lastSuccessTimestamp", entry.lastSuccessTimestamp)
-                    put("averageLatencyMs", entry.averageLatencyMs)
-                })
-            }
-            prefs.edit().putString(KEY_CONFIGURED_KEYS_JSON, array.toString()).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save keys to storage", e)
-        }
+        APIKeyManager.saveKeys(appContext, _keysList.value)
     }
 
     fun addApiKey(provider: AiProviderType, key: String, label: String, priority: Int = 1): Boolean {
@@ -235,6 +147,7 @@ object AiApiManager {
             label = label.ifBlank { "${provider.displayName} Key" },
             priority = priority
         )
+        QuotaMonitor.ensureTracked(newEntry.id, newEntry.provider)
         _keysList.value = (_keysList.value + newEntry).sortedBy { it.priority }
         saveKeysToStorage()
         return true
@@ -263,22 +176,27 @@ object AiApiManager {
     }
 
     /**
-     * Retrieves health and usage summary aggregated per provider for the Admin Dashboard.
+     * Retrieves health and usage summary aggregated per provider.
      */
     fun getProviderSummaries(): List<ProviderHealthSummary> {
-        return AiProviderType.values().map { provider ->
+        val now = System.currentTimeMillis()
+        return AiProviderType.entries.map { provider ->
             val providerKeys = _keysList.value.filter { it.provider == provider }
-            val activeKeys = providerKeys.filter { it.isAvailableNow() }
+            val activeKeys = providerKeys.filter {
+                it.isAvailableNow(now) && QuotaMonitor.canUseKey(it.id, it.provider, now)
+            }
             val totalReqs = providerKeys.sumOf { it.totalRequests }
             val failedReqs = providerKeys.sumOf { it.failedRequests }
             val rateLimits = providerKeys.sumOf { it.rateLimit429Errors }
             val successReqs = providerKeys.sumOf { it.successfulRequests }
             val healthPercent = if (totalReqs > 0) {
-                ((successReqs.toDouble() / totalReqs.toDouble()) * 100).toInt()
-            } else 100
+                ((successReqs.toDouble() / totalReqs.toDouble()) * 100).toInt().coerceIn(0, 100)
+            } else {
+                ProviderHealthMonitor.getProviderState(provider).successRatePercent()
+            }
 
             val latestSuccess = providerKeys.maxOfOrNull { it.lastSuccessTimestamp } ?: 0L
-            val activeKey = providerKeys.firstOrNull { it.isAvailableNow() }?.maskedKey
+            val activeKey = activeKeys.firstOrNull()?.maskedKey
 
             ProviderHealthSummary(
                 provider = provider,
@@ -295,86 +213,171 @@ object AiApiManager {
     }
 
     /**
-     * Executes an AI API call with automatic multi-key failover and provider switching.
-     * If Key A hits 429 or 5xx, it immediately fails over to Key B and retries the request seamlessly.
+     * Executes an AI API call with capability-aware key rotation, quota tracking,
+     * finite bounded retries, and jittered exponential backoff.
      */
     suspend fun <T> executeWithFailover(
         operationName: String = "generateContent",
+        tier: StudyBuddyModelTier = StudyBuddyModelTier.FREE,
+        capability: AiTaskCapability = AiTaskCapability.TEXT_CHAT,
         block: suspend (keyEntry: ApiKeyEntry) -> Result<T>
     ): Result<T> = withContext(Dispatchers.IO) {
+        ensureSeededFromBuildConfigIfEmpty()
+
+        val allConfiguredKeys = _keysList.value
+        val maxAttempts = minOf(
+            RequestRetryService.DEFAULT_MAX_ATTEMPTS,
+            maxOf(1, allConfiguredKeys.count { it.isEnabled && it.key.isNotBlank() } * 2)
+        )
+
+        val triedKeyIds = mutableSetOf<String>()
         var attempts = 0
-        val maxAttempts = maxOf(1, _keysList.value.size * 2)
-        var lastException: Throwable? = null
+        var lastError: Throwable? = null
+        val sensitiveKeys = allConfiguredKeys.mapNotNull { it.key.takeIf { k -> k.isNotBlank() } }
 
         while (attempts < maxAttempts) {
-            val keyEntry = getNextAvailableKey()
-            if (keyEntry == null) {
-                val errorMsg = "All configured AI keys are currently rate-limited or exhausted. Please check the AI API Management dashboard."
-                _lastFailoverEvent.value = errorMsg
-                return@withContext Result.failure(IllegalStateException(errorMsg))
+            val keyEntry = getNextAvailableKey(
+                tier = tier,
+                capability = capability,
+                excludedKeyIds = triedKeyIds
+            ) ?: if (triedKeyIds.isNotEmpty()) {
+                // Allow a second pass only if a transient key's backoff has recovered and we still have attempts
+                getNextAvailableKey(tier = tier, capability = capability, excludedKeyIds = emptySet())
+            } else {
+                null
             }
 
+            if (keyEntry == null) {
+                val hasAnyNonEmptyKey = allConfiguredKeys.any { it.isEnabled && it.key.isNotBlank() }
+                val errorMsg = if (!hasAnyNonEmptyKey) {
+                    "AI service credentials are not configured for this build."
+                } else {
+                    "AI service is temporarily busy or rate-limited. Please try again shortly."
+                }
+                _lastFailoverEvent.value = errorMsg
+                return@withContext Result.failure(lastError ?: IllegalStateException(errorMsg))
+            }
+
+            triedKeyIds.add(keyEntry.id)
             _activeKeyId.value = keyEntry.id
             val startTime = System.currentTimeMillis()
 
             try {
-                recordRequestStart(keyEntry.id)
+                recordRequestStart(keyEntry.id, keyEntry.provider)
                 val result = block(keyEntry)
                 val duration = System.currentTimeMillis() - startTime
 
                 if (result.isSuccess) {
-                    recordRequestSuccess(keyEntry.id, duration)
+                    recordRequestSuccess(keyEntry.id, keyEntry.provider, duration)
                     return@withContext result
                 } else {
                     val error = result.exceptionOrNull()
-                    lastException = error
-                    val failoverHandled = handleExecutionFailure(keyEntry.id, error)
-                    if (!failoverHandled) {
-                        // User input error or non-recoverable error, return without useless retries
-                        return@withContext result
+                    val classification = RequestRetryService.classifyFailure(
+                        httpCode = (error as? ProviderHttpException)?.httpCode,
+                        error = error,
+                        attemptIndex = attempts,
+                        retryAfterSeconds = (error as? ProviderHttpException)?.retryAfterSeconds,
+                        sensitiveKeys = sensitiveKeys
+                    )
+                    lastError = IllegalStateException(classification.safeMessage)
+                    handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
+                    if (!classification.shouldRetryWithNextKey) {
+                        return@withContext Result.failure(lastError!!)
                     }
+                    RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                lastException = e
-                handleExecutionFailure(keyEntry.id, e)
+                val classification = RequestRetryService.classifyFailure(
+                    httpCode = (e as? ProviderHttpException)?.httpCode,
+                    error = e,
+                    attemptIndex = attempts,
+                    retryAfterSeconds = (e as? ProviderHttpException)?.retryAfterSeconds,
+                    sensitiveKeys = sensitiveKeys
+                )
+                lastError = IllegalStateException(classification.safeMessage)
+                handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
+                if (!classification.shouldRetryWithNextKey) {
+                    return@withContext Result.failure(lastError!!)
+                }
+                RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)
             }
 
             attempts++
         }
 
-        Result.failure(lastException ?: IOException("Failed to obtain AI response after failover attempts across all keys."))
+        val finalSafeMessage = RequestRetryService.sanitizeErrorMessage(lastError?.message, sensitiveKeys)
+        Result.failure(IOException(finalSafeMessage.ifBlank { "Unable to reach AI providers after $attempts attempts." }))
     }
 
-    private suspend fun getNextAvailableKey(): ApiKeyEntry? = mutex.withLock {
-        val now = System.currentTimeMillis()
-        val allKeys = _keysList.value
+    private suspend fun ensureSeededFromBuildConfigIfEmpty() = mutex.withLock {
+        val current = _keysList.value
+        val buildKey = APIKeyManager.getBuildConfigGeminiKey()
+        val runtimeKey = GeminiClient.customApiKey?.trim().orEmpty()
+        val effective = runtimeKey.ifBlank { buildKey }
 
-        // 1. First priority: enabled keys of lowest priority number that have passed cooldown and are not invalid
-        val candidates = allKeys
-            .filter { it.isEnabled && it.status != KeyHealthStatus.INVALID }
-            .sortedWith(compareBy({ it.priority }, { it.cooldownUntilTimestamp }))
-
-        val ready = candidates.firstOrNull { it.isAvailableNow() }
-        if (ready != null) return ready
-
-        // 2. If all keys in cooldown, pick the one whose cooldown expires soonest
-        val soonest = candidates.minByOrNull { it.cooldownUntilTimestamp }
-        if (soonest != null && (soonest.cooldownUntilTimestamp - now) <= 3000) {
-            // If cooldown expires within 3s, wait for it
-            kotlinx.coroutines.delay(maxOf(0L, soonest.cooldownUntilTimestamp - now))
-            return soonest
+        var updated = if (current.none { it.key.isNotBlank() && !FirebaseAiLogicService.isVirtualKey(it) } && effective.isNotBlank()) {
+            val seeded = ApiKeyEntry(
+                id = "gemini-primary-built-in",
+                provider = AiProviderType.GEMINI,
+                key = effective,
+                label = "Gemini Primary",
+                priority = 1,
+                isEnabled = true
+            )
+            QuotaMonitor.ensureTracked(seeded.id, seeded.provider)
+            current + seeded
+        } else {
+            current
         }
 
-        return null
+        updated = attachFirebaseAiLogicIfAvailable(updated)
+        if (updated != current) {
+            updated.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+            _keysList.value = updated
+        }
     }
 
-    private suspend fun recordRequestStart(keyId: String) = mutex.withLock {
+    private suspend fun getNextAvailableKey(
+        tier: StudyBuddyModelTier,
+        capability: AiTaskCapability,
+        excludedKeyIds: Set<String>
+    ): ApiKeyEntry? = mutex.withLock {
+        val now = System.currentTimeMillis()
+        // Automatically recover any keys whose cooldown has elapsed
+        var recoveredAny = false
+        val refreshed = _keysList.value.map { entry ->
+            QuotaMonitor.clearCooldownIfRecovered(entry.id, now)
+            if (entry.cooldownUntilTimestamp in 1..now && entry.status != KeyHealthStatus.INVALID) {
+                recoveredAny = true
+                entry.copy(status = KeyHealthStatus.HEALTHY, cooldownUntilTimestamp = 0L)
+            } else {
+                entry
+            }
+        }
+        if (recoveredAny) {
+            _keysList.value = refreshed
+        }
+
+        return APIKeyRotationService.pickNextCandidate(
+            allKeys = _keysList.value,
+            tier = tier,
+            capability = capability,
+            excludedKeyIds = excludedKeyIds,
+            nowMs = now
+        )
+    }
+
+    private suspend fun recordRequestStart(keyId: String, provider: AiProviderType) = mutex.withLock {
+        QuotaMonitor.recordRequestAttempt(keyId, provider)
         _keysList.value = _keysList.value.map {
             if (it.id == keyId) it.copy(totalRequests = it.totalRequests + 1) else it
         }
     }
 
-    private suspend fun recordRequestSuccess(keyId: String, latencyMs: Long) = mutex.withLock {
+    private suspend fun recordRequestSuccess(keyId: String, provider: AiProviderType, latencyMs: Long) = mutex.withLock {
+        ProviderHealthMonitor.recordSuccess(provider, latencyMs)
         _keysList.value = _keysList.value.map {
             if (it.id == keyId) {
                 val newSuccess = it.successfulRequests + 1
@@ -386,154 +389,132 @@ object AiApiManager {
                     status = KeyHealthStatus.HEALTHY,
                     lastSuccessTimestamp = System.currentTimeMillis(),
                     averageLatencyMs = newAvgLatency,
-                    cooldownUntilTimestamp = 0L
+                    cooldownUntilTimestamp = 0L,
+                    lastErrorMessage = null
                 )
             } else it
         }
         saveKeysToStorage()
     }
 
-    /**
-     * Determines failure cause and triggers intelligent key failover.
-     * Returns true if request should fail over and retry with the next key.
-     */
-    private suspend fun handleExecutionFailure(keyId: String, error: Throwable?): Boolean = mutex.withLock {
-        val errorMsg = error?.message ?: "Unknown API error"
+    private suspend fun handleExecutionFailure(
+        keyId: String,
+        provider: AiProviderType,
+        classification: RetryClassification
+    ) = mutex.withLock {
         val now = System.currentTimeMillis()
+        val isOutage = classification.kind == RetryableErrorKind.SERVER_OUTAGE_5XX ||
+            classification.kind == RetryableErrorKind.TRANSIENT_NETWORK
+        ProviderHealthMonitor.recordFailure(provider, isOutage, now)
 
-        val isRateLimit429 = errorMsg.contains("429") || errorMsg.contains("quota", ignoreCase = true) || errorMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true)
-        val isInvalidKey401 = errorMsg.contains("401") || errorMsg.contains("403") || errorMsg.contains("API_KEY_INVALID", ignoreCase = true)
-        val isServerOverload = errorMsg.contains("500") || errorMsg.contains("502") || errorMsg.contains("503") || errorMsg.contains("504") || errorMsg.contains("timeout", ignoreCase = true)
+        if (classification.kind == RetryableErrorKind.RATE_LIMIT_429 ||
+            classification.kind == RetryableErrorKind.QUOTA_EXHAUSTED
+        ) {
+            QuotaMonitor.markRateLimited(
+                keyId = keyId,
+                provider = provider,
+                cooldownMs = classification.keyCooldownMs,
+                markExhaustedForDay = classification.kind == RetryableErrorKind.QUOTA_EXHAUSTED,
+                nowMs = now
+            )
+        }
 
-        var shouldRetryNextKey = false
-
+        _lastFailoverEvent.value = classification.safeMessage
         _keysList.value = _keysList.value.map { entry ->
-            if (entry.id == keyId) {
+            if (entry.id != keyId) entry
+            else {
                 val newFailed = entry.failedRequests + 1
-                when {
-                    isRateLimit429 -> {
-                        shouldRetryNextKey = true
-                        val newRateLimits = entry.rateLimit429Errors + 1
-                        val cooldownSec = (60 * (1 + (newRateLimits % 3))).toLong() // 60s, 120s, 180s
-                        val cooldownUntil = now + (cooldownSec * 1000)
-                        _lastFailoverEvent.value = "Failover: Key '${entry.label}' hit rate-limit 429. Cooling down for ${cooldownSec}s. Switching key..."
+                when (classification.kind) {
+                    RetryableErrorKind.RATE_LIMIT_429 -> entry.copy(
+                        failedRequests = newFailed,
+                        rateLimit429Errors = entry.rateLimit429Errors + 1,
+                        status = KeyHealthStatus.RATE_LIMITED,
+                        cooldownUntilTimestamp = now + classification.keyCooldownMs,
+                        lastErrorTimestamp = now,
+                        lastErrorMessage = classification.safeMessage
+                    )
+                    RetryableErrorKind.QUOTA_EXHAUSTED -> entry.copy(
+                        failedRequests = newFailed,
+                        rateLimit429Errors = entry.rateLimit429Errors + 1,
+                        status = KeyHealthStatus.EXHAUSTED,
+                        cooldownUntilTimestamp = now + classification.keyCooldownMs,
+                        lastErrorTimestamp = now,
+                        lastErrorMessage = classification.safeMessage
+                    )
+                    RetryableErrorKind.INVALID_KEY_401_403 -> if (FirebaseAiLogicService.isVirtualKey(entry)) {
                         entry.copy(
                             failedRequests = newFailed,
-                            rateLimit429Errors = newRateLimits,
-                            status = KeyHealthStatus.RATE_LIMITED,
-                            cooldownUntilTimestamp = cooldownUntil,
+                            status = KeyHealthStatus.TEMPORARY_ERROR,
+                            cooldownUntilTimestamp = now + 5_000L,
                             lastErrorTimestamp = now,
-                            lastErrorMessage = "HTTP 429: Rate limit exceeded"
+                            lastErrorMessage = classification.safeMessage
                         )
-                    }
-                    isInvalidKey401 -> {
-                        shouldRetryNextKey = true
-                        _lastFailoverEvent.value = "Failover: Key '${entry.label}' returned 401/403 unauthorized. Marked invalid. Switching key..."
+                    } else {
                         entry.copy(
                             failedRequests = newFailed,
                             status = KeyHealthStatus.INVALID,
                             lastErrorTimestamp = now,
-                            lastErrorMessage = "HTTP 401/403: Invalid credentials"
+                            lastErrorMessage = classification.safeMessage
                         )
                     }
-                    isServerOverload -> {
-                        shouldRetryNextKey = true
-                        val cooldownUntil = now + (30 * 1000) // 30s temporary backoff
-                        _lastFailoverEvent.value = "Failover: Provider server error on '${entry.label}'. Switching to next backup key..."
-                        entry.copy(
-                            failedRequests = newFailed,
-                            status = KeyHealthStatus.TEMPORARY_ERROR,
-                            cooldownUntilTimestamp = cooldownUntil,
-                            lastErrorTimestamp = now,
-                            lastErrorMessage = errorMsg.take(80)
-                        )
-                    }
-                    else -> {
-                        // General network error or formatting issue
-                        shouldRetryNextKey = error is IOException
-                        entry.copy(
-                            failedRequests = newFailed,
-                            lastErrorTimestamp = now,
-                            lastErrorMessage = errorMsg.take(80)
-                        )
-                    }
+                    RetryableErrorKind.SERVER_OUTAGE_5XX,
+                    RetryableErrorKind.TRANSIENT_NETWORK -> entry.copy(
+                        failedRequests = newFailed,
+                        status = KeyHealthStatus.TEMPORARY_ERROR,
+                        cooldownUntilTimestamp = now + classification.keyCooldownMs,
+                        lastErrorTimestamp = now,
+                        lastErrorMessage = classification.safeMessage
+                    )
+                    RetryableErrorKind.NON_RETRYABLE_CLIENT_ERROR -> entry.copy(
+                        failedRequests = newFailed,
+                        lastErrorTimestamp = now,
+                        lastErrorMessage = classification.safeMessage
+                    )
                 }
-            } else entry
+            }
         }
-
         saveKeysToStorage()
-        return shouldRetryNextKey
     }
 
     /**
-     * Live test validation for a specific API key.
+     * Live test validation for an internal/configured API key.
      */
     suspend fun testKeyValidation(keyEntry: ApiKeyEntry): Result<String> = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         try {
-            when (keyEntry.provider) {
-                AiProviderType.GEMINI -> {
-                    val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keyEntry.key}"
-                    val bodyJson = JSONObject().apply {
-                        put("contents", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("parts", JSONArray().apply {
-                                    put(JSONObject().apply { put("text", "ping") })
-                                })
-                            })
-                        })
-                    }
-                    val request = Request.Builder()
-                        .url(url)
-                        .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    val response = httpClient.newCall(request).execute()
-                    val latency = System.currentTimeMillis() - startTime
-                    if (response.isSuccessful) {
-                        recordRequestSuccess(keyEntry.id, latency)
-                        Result.success("Success: Gemini API key validated in ${latency}ms")
-                    } else {
-                        val code = response.code
-                        val errorStr = "HTTP $code: ${response.message}"
-                        handleExecutionFailure(keyEntry.id, IOException(errorStr))
-                        Result.failure(IOException(errorStr))
-                    }
-                }
-                AiProviderType.OPENROUTER, AiProviderType.GROQ, AiProviderType.CUSTOM_OPENAI -> {
-                    val endpoint = keyEntry.provider.defaultBaseUrl
-                    val bodyJson = JSONObject().apply {
-                        put("model", keyEntry.provider.defaultModel)
-                        put("messages", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("role", "user")
-                                put("content", "ping")
-                            })
-                        })
-                        put("max_tokens", 5)
-                    }
-                    val request = Request.Builder()
-                        .url(endpoint)
-                        .addHeader("Authorization", "Bearer ${keyEntry.key}")
-                        .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    val response = httpClient.newCall(request).execute()
-                    val latency = System.currentTimeMillis() - startTime
-                    if (response.isSuccessful) {
-                        recordRequestSuccess(keyEntry.id, latency)
-                        Result.success("Success: ${keyEntry.provider.displayName} key validated in ${latency}ms")
-                    } else {
-                        val code = response.code
-                        val errorStr = "HTTP $code: ${response.message}"
-                        handleExecutionFailure(keyEntry.id, IOException(errorStr))
-                        Result.failure(IOException(errorStr))
-                    }
-                }
+            val output = AIProviderManager.executeWithKey(
+                keyEntry = keyEntry,
+                request = AiExecutionRequest(
+                    prompt = "Reply with OK.",
+                    capability = AiTaskCapability.TEXT_CHAT,
+                    tier = StudyBuddyModelTier.FREE
+                )
+            )
+            val latency = System.currentTimeMillis() - startTime
+            if (output.isNotBlank()) {
+                recordRequestSuccess(keyEntry.id, keyEntry.provider, latency)
+                Result.success("Success: ${keyEntry.provider.displayName} validated in ${latency}ms")
+            } else {
+                Result.failure(IOException("Empty validation response."))
             }
         } catch (e: Exception) {
-            handleExecutionFailure(keyEntry.id, e)
-            Result.failure(e)
+            val classification = RequestRetryService.classifyFailure(
+                httpCode = (e as? ProviderHttpException)?.httpCode,
+                error = e,
+                sensitiveKeys = listOf(keyEntry.key)
+            )
+            handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
+            Log.w(TAG, "Validation failed for ${keyEntry.label}: ${classification.safeMessage}")
+            Result.failure(IOException(classification.safeMessage))
         }
+    }
+
+    internal fun resetForTesting(seedKeys: List<ApiKeyEntry> = emptyList()) {
+        QuotaMonitor.resetForTesting()
+        ProviderHealthMonitor.resetForTesting()
+        seedKeys.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+        _keysList.value = seedKeys
+        _activeKeyId.value = seedKeys.firstOrNull()?.id
+        _lastFailoverEvent.value = null
     }
 }

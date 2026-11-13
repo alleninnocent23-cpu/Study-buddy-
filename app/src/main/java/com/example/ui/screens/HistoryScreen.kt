@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -92,12 +94,19 @@ fun HistoryScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TrueBlack)
-            .padding(16.dp)
+            .background(TrueBlack),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 840.dp)
+                .navigationBarsPadding()
+                .padding(16.dp)
+        ) {
         // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -174,7 +183,9 @@ fun HistoryScreen(
                         "Explanations (${filteredSessions.size})",
                         color = if (selectedTab == 0) PureWhite else TextMutedGray,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 modifier = Modifier.testTag("tab_history_explanations")
@@ -187,7 +198,9 @@ fun HistoryScreen(
                         "Quizzes (${filteredQuizzes.size})",
                         color = if (selectedTab == 1) PureWhite else TextMutedGray,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 modifier = Modifier.testTag("tab_history_quizzes")
@@ -376,6 +389,7 @@ fun HistoryScreen(
                     }
                 }
             }
+        }
         }
     }
 }
