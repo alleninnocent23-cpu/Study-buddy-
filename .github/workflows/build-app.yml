@@ -62,5 +62,5 @@ jobs:
         with:
           name: StudyBuddy-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          if-no-files-found: build 
           
