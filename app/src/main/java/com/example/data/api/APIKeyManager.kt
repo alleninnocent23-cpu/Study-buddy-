@@ -6,7 +6,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
-import com.example.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -98,17 +97,11 @@ object APIKeyManager {
         }
     }
 
-    fun getBuildConfigGeminiKey(): String {
-        val raw = try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (_: Throwable) {
-            ""
-        }.trim()
-        return if (raw.isNotBlank() && raw != "MY_GEMINI_API_KEY" && !raw.startsWith("YOUR_")) raw else ""
-    }
+    fun getBuildConfigGeminiKey(): String = ""
 
     private fun seedDefaultKeys(): List<ApiKeyEntry> {
         val buildKey = getBuildConfigGeminiKey()
+        if (buildKey.isBlank()) return emptyList()
         return listOf(
             ApiKeyEntry(
                 id = "gemini-primary-built-in",

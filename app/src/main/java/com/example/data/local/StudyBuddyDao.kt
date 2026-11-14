@@ -23,6 +23,9 @@ interface UserDao {
 
     @Query("UPDATE users SET profilePhotoUri = :photoUri WHERE id = :userId")
     suspend fun updateProfilePhoto(userId: Long, photoUri: String?)
+
+    @Query("UPDATE users SET name = :name, grade = :grade, profilePhotoUri = COALESCE(:photoUri, profilePhotoUri) WHERE id = :userId")
+    suspend fun updateUserProfile(userId: Long, name: String, grade: String, photoUri: String?)
 }
 
 @Dao

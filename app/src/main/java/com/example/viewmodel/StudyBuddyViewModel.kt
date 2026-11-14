@@ -171,8 +171,10 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.setVoiceGender(gender)
     }
 
-    // Current Screen
-    private val _currentScreen = MutableStateFlow(AppScreen.WELCOME)
+    // Current Screen (restores straight to Tutor when user already has an active Google/local session)
+    private val _currentScreen = MutableStateFlow(
+        if (authRepository.hasPersistedSession()) AppScreen.TUTOR else AppScreen.WELCOME
+    )
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
     // Current Active User
@@ -226,12 +228,31 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         GeminiClient.activeModelTier = selectedModelTier.value
-        // Load initial user or create guest user if already exists
+        // Restore active Firebase Google / persisted session on cold launch so user doesn't have to re-sign in
         viewModelScope.launch {
-            val user = userDao.getLatestUser()
-            if (user != null) {
-                _currentUser.value = user
-                _currentUserId.value = user.id
+            val restored = authRepository.restoreSignedInUser()
+            if (restored != null) {
+                val dbUser = if (restored.email.isNotBlank()) {
+                    userDao.getUserByEmail(restored.email)
+                } else {
+                    userDao.getLatestUser()
+                }
+                val resolvedUser = dbUser ?: UserEntity(
+                    name = restored.displayName,
+                    email = restored.email.ifBlank { "student@studybuddy.ai" },
+                    grade = restored.grade,
+                    profilePhotoUri = restored.photoUrl
+                ).let { newUser ->
+                    val insertedId = userDao.insertUser(newUser)
+                    newUser.copy(id = insertedId)
+                }
+                _currentUser.value = resolvedUser
+                _currentUserId.value = resolvedUser.id
+                if (_currentScreen.value == AppScreen.WELCOME || _currentScreen.value == AppScreen.AUTH) {
+                    _currentScreen.value = AppScreen.TUTOR
+                }
+            } else if (_currentScreen.value == AppScreen.TUTOR) {
+                _currentScreen.value = AppScreen.WELCOME
             }
         }
 
@@ -364,71 +385,54 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 val id = userDao.insertUser(demoUser)
                 demoUser = demoUser.copy(id = id)
             }
+            authRepository.markLocalSessionActive(demoUser.email)
             _currentUser.value = demoUser
             _currentUserId.value = demoUser.id
             navigateTo(AppScreen.TUTOR)
         }
     }
 
-    fun loginWithGoogle(context: Context = getApplication()) {
+    fun loginWithGoogle(context: Context) {
         viewModelScope.launch {
             authState.value = authState.value.copy(isLoading = true, error = null)
             val result = authRepository.signInWithGoogle(context)
             result.onSuccess { authUser ->
-                var user = userDao.getUserByEmail(authUser.email)
+                var user = if (authUser.email.isNotBlank()) userDao.getUserByEmail(authUser.email) else null
                 if (user == null) {
-                    val id = userDao.insertUser(
-                        UserEntity(
-                            name = authUser.displayName,
-                            email = authUser.email,
-                            grade = authUser.grade,
-                            profilePhotoUri = authUser.photoUrl
-                        )
+                    val safeEmail = authUser.email.ifBlank { "google.${authUser.uid.take(8)}@studybuddy.ai" }
+                    val newUser = UserEntity(
+                        name = authUser.displayName,
+                        email = safeEmail,
+                        grade = authUser.grade,
+                        profilePhotoUri = authUser.photoUrl
                     )
-                    user = UserEntity(id = id, name = authUser.displayName, email = authUser.email, grade = authUser.grade, profilePhotoUri = authUser.photoUrl)
-                } else if (!authUser.photoUrl.isNullOrBlank() && user.profilePhotoUri.isNullOrBlank()) {
-                    userDao.updateProfilePhoto(user.id, authUser.photoUrl)
-                    user = user.copy(profilePhotoUri = authUser.photoUrl)
+                    val id = userDao.insertUser(newUser)
+                    user = newUser.copy(id = id)
+                } else {
+                    userDao.updateUserProfile(
+                        userId = user.id,
+                        name = authUser.displayName.ifBlank { user.name },
+                        grade = user.grade,
+                        photoUri = authUser.photoUrl
+                    )
+                    user = user.copy(
+                        name = authUser.displayName.ifBlank { user.name },
+                        profilePhotoUri = authUser.photoUrl ?: user.profilePhotoUri
+                    )
                 }
                 _currentUser.value = user
                 _currentUserId.value = user.id
-                // Trigger welcome email notification on Google Sign-In
+                // Trigger welcome notification on Google Sign-In
                 studyNotificationScheduler.sendWelcomeEmailNotification(user.name, user.email)
                 studyNotificationScheduler.scheduleBiHourlyStudyReminders()
-                authState.value = authState.value.copy(isLoading = false)
+                authState.value = authState.value.copy(isLoading = false, error = null)
                 navigateTo(AppScreen.TUTOR)
             }.onFailure { err ->
-                authState.value = authState.value.copy(isLoading = false, error = err.localizedMessage)
-            }
-        }
-    }
-
-    fun loginWithFacebook(activity: Activity? = null) {
-        viewModelScope.launch {
-            authState.value = authState.value.copy(isLoading = true, error = null)
-            val result = if (activity != null) {
-                authRepository.signInWithFacebook(activity)
-            } else {
-                authRepository.signInWithEmail("student@facebook.com", "student123")
-            }
-            result.onSuccess { authUser ->
-                var user = userDao.getUserByEmail(authUser.email)
-                if (user == null) {
-                    val id = userDao.insertUser(
-                        UserEntity(
-                            name = authUser.displayName,
-                            email = authUser.email,
-                            grade = authUser.grade
-                        )
-                    )
-                    user = UserEntity(id = id, name = authUser.displayName, email = authUser.email, grade = authUser.grade)
-                }
-                _currentUser.value = user
-                _currentUserId.value = user.id
-                authState.value = authState.value.copy(isLoading = false)
-                navigateTo(AppScreen.TUTOR)
-            }.onFailure { err ->
-                authState.value = authState.value.copy(isLoading = false, error = err.localizedMessage)
+                val isCancelled = err is androidx.credentials.exceptions.GetCredentialCancellationException
+                authState.value = authState.value.copy(
+                    isLoading = false,
+                    error = if (isCancelled) null else (err.localizedMessage ?: "Google Sign-In failed. Please try again.")
+                )
             }
         }
     }
@@ -443,8 +447,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun logout() {
         voiceManager.stopSpeaking()
-        authRepository.signOut()
         _currentUser.value = null
+        authState.value = authState.value.copy(isLoading = false, error = null)
+        viewModelScope.launch {
+            authRepository.signOutAndClearCredentials()
+        }
         navigateTo(AppScreen.WELCOME)
     }
 

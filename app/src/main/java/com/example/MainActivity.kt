@@ -183,7 +183,11 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
     }
 
     // Android Back Handler
-    BackHandler(enabled = drawerState.isOpen || currentScreen != AppScreen.WELCOME) {
+    BackHandler(
+        enabled = drawerState.isOpen ||
+            (currentScreen != AppScreen.WELCOME &&
+                !(currentScreen == AppScreen.TUTOR && currentUser != null && tutorState.messages.isEmpty()))
+    ) {
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
         } else {
@@ -199,10 +203,10 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                     }
                 }
                 AppScreen.TUTOR -> {
-                    // Back on tutor clears chat if active, else navigates to welcome
+                    // Back on tutor clears chat if active, else returns to welcome only for unauthenticated sessions
                     if (tutorState.messages.isNotEmpty()) {
                         viewModel.clearCurrentChat()
-                    } else {
+                    } else if (currentUser == null) {
                         viewModel.navigateTo(AppScreen.WELCOME)
                     }
                 }
@@ -652,8 +656,7 @@ fun StudyBuddyApp(viewModel: StudyBuddyViewModel) {
                             onUpdateFields = { n, e, g -> viewModel.updateAuthField(n, e, g) },
                             onSubmit = { viewModel.authenticate() },
                             onDemoLogin = { viewModel.continueAsDemoStudent() },
-                            onGoogleLogin = { viewModel.loginWithGoogle(context) },
-                            onFacebookLogin = { viewModel.loginWithFacebook(activity) },
+                            onGoogleLogin = { viewModel.loginWithGoogle(activity ?: context) },
                             onBack = { viewModel.navigateTo(AppScreen.WELCOME) }
                         )
                     }

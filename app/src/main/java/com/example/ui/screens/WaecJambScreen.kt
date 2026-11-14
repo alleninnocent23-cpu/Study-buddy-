@@ -148,6 +148,9 @@ fun WaecJambScreen(
             if (state.config.examType == ExamType.WAEC) WaecHubSubView.WAEC_HUB else WaecHubSubView.JAMB_HUB
         )
     }
+    var searchInitialQuery by remember { mutableStateOf("") }
+    var searchExamFilter by remember { mutableStateOf<ExamType?>(state.config.examType) }
+    var subViewBeforeSearch by remember { mutableStateOf(WaecHubSubView.WAEC_HUB) }
 
     var showSubjectSelectorDialog by remember { mutableStateOf(false) }
     var activeDialogTrack by remember { mutableStateOf("All") }
@@ -207,7 +210,13 @@ fun WaecJambScreen(
                                     onSelectMode = onSelectMode,
                                     onStartExam = onStartExam,
                                     onUpdateQuestionCount = onSelectQuestionCount,
-                                    onBackToGetStarted = onBackToGetStarted
+                                    onBackToGetStarted = onBackToGetStarted,
+                                    onOpenSearch = { q ->
+                                        subViewBeforeSearch = WaecHubSubView.WAEC_HUB
+                                        searchInitialQuery = q
+                                        searchExamFilter = ExamType.WAEC
+                                        activeSubView = WaecHubSubView.SEARCH
+                                    }
                                 )
                             }
                             WaecHubSubView.JAMB_HUB -> {
@@ -224,7 +233,13 @@ fun WaecJambScreen(
                                     onSelectMode = onSelectMode,
                                     onStartExam = onStartExam,
                                     onUpdateQuestionCount = onSelectQuestionCount,
-                                    onBackToGetStarted = onBackToGetStarted
+                                    onBackToGetStarted = onBackToGetStarted,
+                                    onOpenSearch = { q ->
+                                        subViewBeforeSearch = WaecHubSubView.JAMB_HUB
+                                        searchInitialQuery = q
+                                        searchExamFilter = ExamType.JAMB
+                                        activeSubView = WaecHubSubView.SEARCH
+                                    }
                                 )
                             }
                             WaecHubSubView.SUBJECTS -> {
@@ -238,6 +253,12 @@ fun WaecJambScreen(
                                     onSelectAndStart = { sub ->
                                         onSelectSubject(sub)
                                         onStartExam()
+                                    },
+                                    onOpenQuestionSearch = { q ->
+                                        subViewBeforeSearch = WaecHubSubView.SUBJECTS
+                                        searchInitialQuery = q
+                                        searchExamFilter = state.config.examType
+                                        activeSubView = WaecHubSubView.SEARCH
                                     }
                                 )
                             }
@@ -245,6 +266,24 @@ fun WaecJambScreen(
                                 StudyNoteFormulaView(
                                     onBack = {
                                         activeSubView = if (state.config.examType == ExamType.WAEC) WaecHubSubView.WAEC_HUB else WaecHubSubView.JAMB_HUB
+                                    }
+                                )
+                            }
+                            WaecHubSubView.SEARCH -> {
+                                PastQuestionSearchView(
+                                    initialQuery = searchInitialQuery,
+                                    initialExamFilter = searchExamFilter,
+                                    isSpeaking = isSpeaking,
+                                    onBack = { activeSubView = subViewBeforeSearch },
+                                    onPlayAudio = onPlayAudio,
+                                    onStopAudio = onStopAudio,
+                                    onPracticeTopic = { exam, subject, topic ->
+                                        onSelectExam(exam)
+                                        onSetSelectedSubjects(listOf(subject))
+                                        onSelectSubject(subject)
+                                        onSelectTopic(topic)
+                                        onSelectMode(ExamPrepMode.PRACTICE)
+                                        onStartExam()
                                     }
                                 )
                             }

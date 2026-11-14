@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
-import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -39,14 +38,7 @@ object GeminiClient {
     var customApiKey: String? = null
 
     fun getEffectiveApiKey(): String {
-        val custom = customApiKey?.trim()
-        if (!custom.isNullOrEmpty()) return custom
-        val buildKey = try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (e: Throwable) {
-            ""
-        }
-        return if (buildKey.isNotEmpty() && buildKey != "MY_GEMINI_API_KEY") buildKey else ""
+        return customApiKey?.trim().orEmpty()
     }
 
     fun cleanAcademicText(rawText: String): String {

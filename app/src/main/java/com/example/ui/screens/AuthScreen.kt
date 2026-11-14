@@ -318,12 +318,23 @@ fun AuthScreen(
 
             if (state.error != null) {
                 Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = state.error,
-                    color = PureWhite,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF2B1215),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF7F1D1D), RoundedCornerShape(8.dp))
+                        .testTag("auth_error_banner")
+                ) {
+                    Text(
+                        text = state.error,
+                        color = Color(0xFFFCA5A5),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(36.dp))
@@ -390,6 +401,7 @@ fun AuthScreen(
             // Google Sign-In Button (Prominent, full-width, centered in the middle)
             OutlinedButton(
                 onClick = onGoogleLogin,
+                enabled = !state.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
@@ -399,21 +411,37 @@ fun AuthScreen(
                     brush = androidx.compose.ui.graphics.SolidColor(BorderLight)
                 ),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = PureWhite
+                    contentColor = PureWhite,
+                    disabledContentColor = TextMutedGray
                 )
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    GoogleLogoIcon()
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (state.isLoginMode) "Continue with Google" else "Sign up with Google",
-                        color = PureWhite,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (state.isLoading) {
+                        CircularProgressIndicator(
+                            color = PureWhite,
+                            modifier = Modifier.size(17.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Connecting Google...",
+                            color = PureWhite,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        GoogleLogoIcon()
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (state.isLoginMode) "Continue with Google" else "Sign up with Google",
+                            color = PureWhite,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
 

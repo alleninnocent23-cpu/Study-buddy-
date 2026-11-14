@@ -94,7 +94,8 @@ enum class WaecHubSubView {
     WAEC_HUB,     // Screen 4 from reference image: WAEC Success hero + 4 action cards + Pass WAEC banner
     JAMB_HUB,     // Screen 6 from reference image: JAMB 2026 hero + 4 action cards
     SUBJECTS,     // Screen 5 from reference image: WAEC - Subjects with filter chips and subject list
-    FORMULAS      // Screen 8 from reference image: Mathematics Formulas & Science Reference
+    FORMULAS,     // Screen 8 from reference image: Mathematics Formulas & Science Reference
+    SEARCH        // Multi-year Past Question & Topic Search Engine with explanations (1997-2026)
 }
 
 /**
@@ -123,6 +124,7 @@ fun WaecHubView(
     onStartExam: () -> Unit,
     onUpdateQuestionCount: (Int) -> Unit = {},
     onBackToGetStarted: (() -> Unit)? = null,
+    onOpenSearch: (initialQuery: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -331,13 +333,57 @@ fun WaecHubView(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // --- 4 ACTION CARDS (MATCHING REFERENCE SCREEN 4) ---
+        // --- QUICK SEARCH BAR FOR MULTI-YEAR WAEC QUESTIONS & EXPLANATIONS ---
+        Surface(
+            onClick = { onOpenSearch("") },
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF141414),
+            border = BorderStroke(1.dp, Color(0xFF3A3A3A)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("waec_hub_search_bar")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search WAEC questions",
+                    tint = PureWhite,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Search WAEC subject or topic across years (1997–2026)...",
+                    color = TextMutedGray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // --- 5 ACTION CARDS (INCLUDING PAST QUESTION SEARCH ENGINE) ---
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // 0. Question Search Engine
+            ActionOptionCard(
+                icon = Icons.Default.Search,
+                title = "Search Past Questions & Topics",
+                subtitle = "Find all questions & explanations across different years",
+                onClick = { onOpenSearch("") }
+            )
             // 1. Past Questions
             ActionOptionCard(
                 icon = Icons.AutoMirrored.Filled.MenuBook,
@@ -742,6 +788,7 @@ fun JambHubView(
     onStartExam: () -> Unit,
     onUpdateQuestionCount: (Int) -> Unit = {},
     onBackToGetStarted: (() -> Unit)? = null,
+    onOpenSearch: (initialQuery: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -952,13 +999,57 @@ fun JambHubView(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // --- 4 ACTION CARDS (MATCHING REFERENCE SCREEN 6) ---
+        // --- QUICK SEARCH BAR FOR MULTI-YEAR JAMB QUESTIONS & EXPLANATIONS ---
+        Surface(
+            onClick = { onOpenSearch("") },
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF141414),
+            border = BorderStroke(1.dp, Color(0xFF3A3A3A)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("jamb_hub_search_bar")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search JAMB questions",
+                    tint = PureWhite,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Search JAMB subject or topic across years (1997–2026)...",
+                    color = TextMutedGray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // --- 5 ACTION CARDS (INCLUDING PAST QUESTION SEARCH ENGINE) ---
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // 0. Question Search Engine
+            ActionOptionCard(
+                icon = Icons.Default.Search,
+                title = "Search Past Questions & Topics",
+                subtitle = "Find all questions & explanations across different years",
+                onClick = { onOpenSearch("") }
+            )
             // 1. Past Questions
             ActionOptionCard(
                 icon = Icons.Default.Description,
@@ -1287,6 +1378,7 @@ fun WaecSubjectsDirectoryView(
     onBack: () -> Unit,
     onToggleSubject: (String) -> Unit,
     onSelectAndStart: (String) -> Unit,
+    onOpenQuestionSearch: (initialQuery: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -1405,11 +1497,11 @@ fun WaecSubjectsDirectoryView(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // --- SEARCH BAR ---
+        // --- SEARCH BAR & QUESTION ENGINE SHORTCUT ---
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search subjects...", color = TextSubtle, fontSize = 13.sp) },
+            placeholder = { Text("Search subjects or jump to past questions...", color = TextSubtle, fontSize = 13.sp) },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null, tint = TextMutedGray, modifier = Modifier.size(18.dp))
             },
@@ -1424,8 +1516,61 @@ fun WaecSubjectsDirectoryView(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .heightIn(min = 48.dp)
         )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Surface(
+            onClick = { onOpenQuestionSearch(searchQuery.trim()) },
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF191D24),
+            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("subjects_directory_search_engine_btn")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (searchQuery.isNotBlank()) {
+                            "Search Past Questions for \"${searchQuery.trim()}\""
+                        } else {
+                            "Open Past Question Search Engine (1997–2026)"
+                        },
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "View matching questions from different years with full explanations",
+                        color = TextMutedGray,
+                        fontSize = 10.sp
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Search questions",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(14.dp))
 

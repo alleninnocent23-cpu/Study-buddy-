@@ -2,10 +2,12 @@ package com.example
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import com.example.data.api.StudyBuddyModelTier
 import com.example.data.local.UserEntity
 import com.example.data.model.ExamPrepMode
@@ -14,10 +16,13 @@ import com.example.data.model.ExamType
 import com.example.data.model.WaecJambConfig
 import com.example.data.model.WaecJambQuestion
 import com.example.data.model.WaecJambState
+import com.example.data.repository.WaecJambQuestionBank
 import com.example.ui.components.ModelSelectorDialog
 import com.example.ui.screens.AssignmentHelperScreen
+import com.example.ui.screens.PastQuestionSearchView
 import com.example.ui.screens.PomodoroTimerScreen
 import com.example.ui.screens.SettingsDialog
+import com.example.ui.screens.TextbookLibraryScreen
 import com.example.ui.screens.WaecHubSubView
 import com.example.ui.screens.WaecJambScreen
 import com.example.ui.screens.WaecJambUnifiedBottomNav
@@ -266,5 +271,108 @@ class StudyBuddyUiUpgradeTest {
         composeRule.onNodeWithTag("pomodoro_toggle_play_button").performScrollTo().assertIsDisplayed().performClick()
         composeRule.waitForIdle()
         assertTrue(togglePlayed)
+    }
+
+    @Test
+    @Config(sdk = [36], qualifiers = "w360dp-h780dp")
+    fun textbookLibraryHidesWithDiagramsBadge() {
+        composeRule.setContent {
+            MyApplicationTheme {
+                TextbookLibraryScreen(
+                    onBack = {}
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Textbook & Subject Library").assertIsDisplayed()
+        composeRule.onNodeWithText("WITH DIAGRAMS").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(sdk = [36], qualifiers = "w360dp-h780dp")
+    fun waecJambSearchEngineReturnsMultiYearQuestionsAndExplanations() {
+        val waecPhysics = WaecJambQuestionBank.searchPastQuestions(
+            query = "Physics",
+            examFilter = ExamType.WAEC
+        )
+        assertTrue(waecPhysics.isNotEmpty())
+        assertTrue(waecPhysics.map { it.year }.distinct().size >= 3)
+        assertTrue(waecPhysics.all { it.explanation.isNotBlank() && it.exam == ExamType.WAEC })
+
+        val jambMath = WaecJambQuestionBank.searchPastQuestions(
+            query = "Mathematics",
+            examFilter = ExamType.JAMB
+        )
+        assertTrue(jambMath.isNotEmpty())
+        assertTrue(jambMath.map { it.year }.distinct().size >= 3)
+        assertTrue(jambMath.all { it.explanation.isNotBlank() && it.exam == ExamType.JAMB })
+
+        composeRule.setContent {
+            MyApplicationTheme {
+                PastQuestionSearchView(
+                    initialQuery = "",
+                    initialExamFilter = ExamType.WAEC,
+                    onBack = {},
+                    onPlayAudio = {},
+                    onStopAudio = {},
+                    onPracticeTopic = { _, _, _ -> }
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Past Question Search Engine").assertIsDisplayed()
+        composeRule.onNodeWithTag("waec_jamb_question_search_input")
+            .performTextReplacement("Physics")
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("past_question_search_count").assertIsDisplayed()
+        composeRule.onNodeWithTag("past_question_search_results_list").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Step-by-Step Explanation (${waecPhysics.first().correctAnswerLetter})")[0]
+            .assertIsDisplayed()
+    }
+
+    @Test
+    @Config(sdk = [36], qualifiers = "w360dp-h780dp")
+    fun waecStudyHubOpensQuestionSearchBar() {
+        val setupState = WaecJambState(
+            stage = ExamScreenStage.SELECTION_SETUP,
+            config = WaecJambConfig(examType = ExamType.WAEC)
+        )
+
+        composeRule.setContent {
+            MyApplicationTheme {
+                WaecJambScreen(
+                    state = setupState,
+                    isSpeaking = false,
+                    onProceedFromGetStarted = {},
+                    onBackToGetStarted = {},
+                    onExitExamPrep = {},
+                    onSelectExam = {},
+                    onSelectSubject = {},
+                    onSelectYear = {},
+                    onSelectTopic = {},
+                    onSelectDifficulty = {},
+                    onSelectMode = {},
+                    onSelectQuestionCount = {},
+                    onStartExam = {},
+                    onSelectAnswer = { _, _ -> },
+                    onNextQuestion = {},
+                    onPrevQuestion = {},
+                    onJumpToQuestion = {},
+                    onToggleFlagQuestion = {},
+                    onSubmitExam = {},
+                    onRetakeExam = {},
+                    onResetToSetup = {},
+                    onPlayAudio = {},
+                    onStopAudio = {}
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("waec_hub_search_bar").assertIsDisplayed().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Past Question Search Engine").assertIsDisplayed()
     }
 }

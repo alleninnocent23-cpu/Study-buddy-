@@ -51,7 +51,8 @@ object RequestRetryService {
         error: Throwable? = null,
         attemptIndex: Int = 0,
         retryAfterSeconds: Long? = null,
-        sensitiveKeys: Collection<String> = emptyList()
+        sensitiveKeys: Collection<String> = emptyList(),
+        isFirebaseAppCheckRoute: Boolean = false
     ): RetryClassification {
         val rawMsg = error?.message.orEmpty()
         val lower = rawMsg.lowercase()
@@ -99,8 +100,12 @@ object RequestRetryService {
                 kind = kind,
                 shouldRetryWithNextKey = true,
                 backoffDelayMs = 100L,
-                keyCooldownMs = 3_600_000L,
-                safeMessage = "Configured key rejected by provider; failing over."
+                keyCooldownMs = if (isFirebaseAppCheckRoute) 5_000L else 3_600_000L,
+                safeMessage = if (isFirebaseAppCheckRoute) {
+                    safeMsg.ifBlank { "Firebase AI Logic authorization check failed." }
+                } else {
+                    "Configured key rejected by provider; failing over."
+                }
             )
             RetryableErrorKind.SERVER_OUTAGE_5XX -> RetryClassification(
                 kind = kind,

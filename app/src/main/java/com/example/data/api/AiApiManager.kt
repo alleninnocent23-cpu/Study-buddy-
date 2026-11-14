@@ -272,16 +272,23 @@ object AiApiManager {
                     return@withContext result
                 } else {
                     val error = result.exceptionOrNull()
+                    val isVirtualRoute = FirebaseAiLogicService.isVirtualKey(keyEntry)
                     val classification = RequestRetryService.classifyFailure(
                         httpCode = (error as? ProviderHttpException)?.httpCode,
                         error = error,
                         attemptIndex = attempts,
                         retryAfterSeconds = (error as? ProviderHttpException)?.retryAfterSeconds,
-                        sensitiveKeys = sensitiveKeys
+                        sensitiveKeys = sensitiveKeys,
+                        isFirebaseAppCheckRoute = isVirtualRoute
                     )
                     lastError = IllegalStateException(classification.safeMessage)
                     handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
-                    if (!classification.shouldRetryWithNextKey) {
+                    val hasUntriedBackupKey = allConfiguredKeys.any {
+                        it.id !in triedKeyIds && it.isEnabled && it.key.isNotBlank() && it.isAvailableNow()
+                    }
+                    if (!classification.shouldRetryWithNextKey ||
+                        (isVirtualRoute && classification.kind == RetryableErrorKind.INVALID_KEY_401_403 && !hasUntriedBackupKey)
+                    ) {
                         return@withContext Result.failure(lastError!!)
                     }
                     RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)
@@ -289,16 +296,23 @@ object AiApiManager {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                val isVirtualRoute = FirebaseAiLogicService.isVirtualKey(keyEntry)
                 val classification = RequestRetryService.classifyFailure(
                     httpCode = (e as? ProviderHttpException)?.httpCode,
                     error = e,
                     attemptIndex = attempts,
                     retryAfterSeconds = (e as? ProviderHttpException)?.retryAfterSeconds,
-                    sensitiveKeys = sensitiveKeys
+                    sensitiveKeys = sensitiveKeys,
+                    isFirebaseAppCheckRoute = isVirtualRoute
                 )
                 lastError = IllegalStateException(classification.safeMessage)
                 handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
-                if (!classification.shouldRetryWithNextKey) {
+                val hasUntriedBackupKey = allConfiguredKeys.any {
+                    it.id !in triedKeyIds && it.isEnabled && it.key.isNotBlank() && it.isAvailableNow()
+                }
+                if (!classification.shouldRetryWithNextKey ||
+                    (isVirtualRoute && classification.kind == RetryableErrorKind.INVALID_KEY_401_403 && !hasUntriedBackupKey)
+                ) {
                     return@withContext Result.failure(lastError!!)
                 }
                 RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)

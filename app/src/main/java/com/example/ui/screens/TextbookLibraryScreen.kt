@@ -227,28 +227,14 @@ fun TextbookLibraryScreen(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Textbook & Subject Library",
-                            color = PureWhite,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, Color(0xFF10B981))
-                        ) {
-                            Text(
-                                text = "WITH DIAGRAMS",
-                                color = Color(0xFF34D399),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
+                    Text(
+                        text = "Textbook & Subject Library",
+                        color = PureWhite,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Text(
                         text = "Complete subject guides with scientific diagrams, formulas & worked examples",
                         color = TextMutedGray,
