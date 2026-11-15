@@ -32,9 +32,13 @@ concurrency:
 
 jobs:
   build:
-    name: Build StudyBuddy Android App
+    name: Build StudyBuddy APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    env:
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
 
     steps:
       - name: Checkout Repository
@@ -48,22 +52,46 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        shell: bash
+        run: |
+          set -e
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_DIR/licenses"
+          printf '\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee' > "$SDK_DIR/licenses/android-sdk-license"
+          printf '\n84831b9409646a918e30573bab4c9c91346d8abd' > "$SDK_DIR/licenses/android-sdk-preview-license"
+          printf '\nd975f751698a77b662f1254ddbeed3901e976f5a' > "$SDK_DIR/licenses/intel-android-extra-license"
+          printf '\n33b6a2b64607f11b759f320ef9dff4ae5c47d97a' > "$SDK_DIR/licenses/google-gdk-license"
+          printf '\ne9acab5b5fbb560a72cfaecce8946896ff6aab9d' > "$SDK_DIR/licenses/mips-android-sysimage-license"
+          for SDKM in "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "$SDK_DIR"/cmdline-tools/*/bin/sdkmanager; do
+            if [ -x "$SDKM" ]; then
+              yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+              break
+            fi
+          done
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Restore or Generate Keystores
         shell: bash
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
-          UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           set -e
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f "debug.keystore" ]; then
+          if [ -s "debug.keystore.base64" ]; then
+            tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
+          fi
+          if [ ! -s "debug.keystore" ]; then
             keytool -genkeypair -noprompt \
               -keystore debug.keystore \
               -storepass android \
@@ -77,17 +105,20 @@ jobs:
           mkdir -p app
           cp debug.keystore app/debug.keystore 2>/dev/null || true
 
-          if [ ! -f "my-upload-key.jks" ]; then
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > my-upload-key.jks
+          elif [ ! -s "my-upload-key.jks" ]; then
             keytool -genkeypair -noprompt \
               -keystore my-upload-key.jks \
-              -storepass "$KEYSTORE_PASSWORD" \
+              -storepass "$STORE_PASSWORD" \
               -alias upload \
-              -keypass "$UPLOAD_KEY_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Upload,O=Android,C=US"
           fi
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> "$GITHUB_ENV"
 
       - name: Configure Google Services & Env
         shell: bash
@@ -97,8 +128,8 @@ jobs:
           set -e
           mkdir -p app
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-          elif [ ! -f "app/google-services.json" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          elif [ ! -s "app/google-services.json" ]; then
             cat << 'EOF' > app/google-services.json
           {
             "project_info": {
@@ -129,37 +160,59 @@ jobs:
           EOF
           fi
 
-          if [ -f ".env.example" ] && [ ! -f ".env" ]; then
-            cp .env.example .env
-          else
-            touch .env
+          python3 -c "
+          import json
+          with open('app/google-services.json') as f:
+              data = json.load(f)
+          clients = data.get('client', [])
+          valid = any(
+              oauth.get('client_type') == 3
+              for client in clients
+              for oauth in client.get('oauth_client', [])
+          )
+          if not valid:
+              raise SystemExit(
+                  'ERROR: Missing Web OAuth client (client_type 3) in app/google-services.json'
+              )
+          print('Validated app/google-services.json successfully.')
+          "
+
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
           fi
 
-      - name: Ensure Gradle Wrapper Executable
+      - name: Prepare Gradle Wrapper
         shell: bash
         run: |
+          set -e
           if [ -f "./gradlew" ]; then
+            sed -i 's/\r$//' ./gradlew
             chmod +x ./gradlew
           else
             gradle wrapper --gradle-version 9.3.1
             chmod +x ./gradlew
           fi
 
-      - name: Run Unit Tests
-        shell: bash
-        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
-
       - name: Build Android APK
         shell: bash
         env:
           BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
         run: |
           set -e
           mkdir -p dist
+          GRADLE_ARGS=(
+            --no-daemon
+            --stacktrace
+            --max-workers=2
+            "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
+          )
+
           if [ "$BUILD_TYPE" = "debug" ] || [ "$BUILD_TYPE" = "both" ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
+            ./gradlew :app:assembleDebug "${GRADLE_ARGS[@]}"
             APK_DEBUG=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
             if [ -n "$APK_DEBUG" ] && [ -f "$APK_DEBUG" ]; then
               cp "$APK_DEBUG" dist/StudyBuddy-debug.apk
@@ -170,7 +223,7 @@ jobs:
           fi
 
           if [ "$BUILD_TYPE" = "release" ] || [ "$BUILD_TYPE" = "both" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace
+            ./gradlew :app:assembleRelease "${GRADLE_ARGS[@]}"
             APK_RELEASE=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
             if [ -n "$APK_RELEASE" ] && [ -f "$APK_RELEASE" ]; then
               cp "$APK_RELEASE" dist/StudyBuddy-release.apk
@@ -179,6 +232,7 @@ jobs:
               exit 1
             fi
           fi
+
           ls -lh dist/
 
       - name: Upload APK Artifact
@@ -198,3 +252,94 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java 21 (JDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Accept Android SDK Licenses
+        shell: bash
+        run: |
+          set -e
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_DIR/licenses"
+          printf '\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee' > "$SDK_DIR/licenses/android-sdk-license"
+          printf '\n84831b9409646a918e30573bab4c9c91346d8abd' > "$SDK_DIR/licenses/android-sdk-preview-license"
+          for SDKM in "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "$SDK_DIR"/cmdline-tools/*/bin/sdkmanager; do
+            if [ -x "$SDKM" ]; then
+              yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+              break
+            fi
+          done
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Prepare Environment & Wrapper
+        shell: bash
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          set -e
+          if [ -s "debug.keystore.base64" ]; then
+            tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
+          fi
+          if [ ! -s "debug.keystore" ]; then
+            keytool -genkeypair -noprompt \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          mkdir -p app
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+          sed -i 's/\r$//' ./gradlew
+          chmod +x ./gradlew
+
+      - name: Run Unit Tests
+        shell: bash
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --no-daemon \
+            --stacktrace \
+            --max-workers=2 \
+            "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
