@@ -1,0 +1,200 @@
+name: App Build & Release (StudyBuddy)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type (debug, release, or both)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - both
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build StudyBuddy Android App
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java 21 (JDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore or Generate Keystores
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          set -e
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f "debug.keystore" ]; then
+            keytool -genkeypair -noprompt \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          mkdir -p app
+          cp debug.keystore app/debug.keystore 2>/dev/null || true
+
+          if [ ! -f "my-upload-key.jks" ]; then
+            keytool -genkeypair -noprompt \
+              -keystore my-upload-key.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -alias upload \
+              -keypass "$UPLOAD_KEY_PASSWORD" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Upload,O=Android,C=US"
+          fi
+
+      - name: Configure Google Services & Env
+        shell: bash
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          set -e
+          mkdir -p app
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          elif [ ! -f "app/google-services.json" ]; then
+            cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "100000000000",
+              "project_id": "studybuddy-app",
+              "storage_bucket": "studybuddy-app.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:100000000000:android:studybuddy1",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.studybuddy.xkjqmw"
+                  }
+                },
+                "oauth_client": [
+                  {
+                    "client_id": "100000000000-ciplaceholder.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
+                "api_key": [{ "current_key": "ci-build-placeholder" }],
+                "services": { "analytics_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
+          if [ -f ".env.example" ] && [ ! -f ".env" ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+
+      - name: Ensure Gradle Wrapper Executable
+        shell: bash
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          else
+            gradle wrapper --gradle-version 9.3.1
+            chmod +x ./gradlew
+          fi
+
+      - name: Run Unit Tests
+        shell: bash
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build Android APK
+        shell: bash
+        env:
+          BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          set -e
+          mkdir -p dist
+          if [ "$BUILD_TYPE" = "debug" ] || [ "$BUILD_TYPE" = "both" ]; then
+            ./gradlew assembleDebug --no-daemon --stacktrace
+            APK_DEBUG=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
+            if [ -n "$APK_DEBUG" ] && [ -f "$APK_DEBUG" ]; then
+              cp "$APK_DEBUG" dist/StudyBuddy-debug.apk
+            else
+              echo "ERROR: Debug APK not found"
+              exit 1
+            fi
+          fi
+
+          if [ "$BUILD_TYPE" = "release" ] || [ "$BUILD_TYPE" = "both" ]; then
+            ./gradlew assembleRelease --no-daemon --stacktrace
+            APK_RELEASE=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+            if [ -n "$APK_RELEASE" ] && [ -f "$APK_RELEASE" ]; then
+              cp "$APK_RELEASE" dist/StudyBuddy-release.apk
+            else
+              echo "ERROR: Release APK not found"
+              exit 1
+            fi
+          fi
+          ls -lh dist/
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudyBuddy-APK
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release on Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          name: "StudyBuddy Release ${{ github.ref_name }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -447,6 +447,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     fun logout() {
         voiceManager.stopSpeaking()
+        authRepository.signOut()
         _currentUser.value = null
         authState.value = authState.value.copy(isLoading = false, error = null)
         viewModelScope.launch {

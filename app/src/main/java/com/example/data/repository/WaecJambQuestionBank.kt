@@ -1509,31 +1509,52 @@ object WaecJambQuestionBank {
     private fun subjectMatchesFilter(questionSubject: String, filterSubject: String): Boolean {
         if (filterSubject.equals("All Subjects", ignoreCase = true)) return true
         if (questionSubject.equals(filterSubject, ignoreCase = true)) return true
-        val normQ = questionSubject.lowercase()
-        val normF = filterSubject.lowercase()
-        if ((normQ.contains("account") && normF.contains("account"))) return true
-        return normQ.contains(normF) || normF.contains(normQ)
+        val normQ = questionSubject.trim().lowercase()
+        val normF = filterSubject.trim().lowercase()
+        if (normQ.contains("account") && normF.contains("account")) return true
+        if ((normQ == "english" || normQ == "english language") &&
+            (normF == "english" || normF == "english language")
+        ) return true
+        if ((normQ == "literature" || normQ == "literature in english") &&
+            (normF == "literature" || normF == "literature in english")
+        ) return true
+        return false
     }
 
     private fun normalizeQueryAliases(raw: String): List<String> {
         val cleaned = raw.trim().lowercase()
         if (cleaned.isBlank()) return emptyList()
-        val expanded = cleaned
-            .replace("maths", "mathematics")
-            .replace("math ", "mathematics ")
-            .replace("govt", "government")
-            .replace("econs", "economics")
-            .replace("econ", "economics")
-            .replace("chem", "chemistry")
-            .replace("phy", "physics")
-            .replace("bio", "biology")
-            .replace("eng", "english")
-            .replace("lit ", "literature ")
-            .replace("agric", "agricultural")
-            .replace("acct", "accounts")
-        return (cleaned.split(" ", ",", "-", "&") + expanded.split(" ", ",", "-", "&"))
+        val tokenAliasMap = mapOf(
+            "math" to "mathematics",
+            "maths" to "mathematics",
+            "mth" to "mathematics",
+            "fmath" to "further mathematics",
+            "fmaths" to "further mathematics",
+            "govt" to "government",
+            "gov" to "government",
+            "econs" to "economics",
+            "econ" to "economics",
+            "eco" to "economics",
+            "chem" to "chemistry",
+            "chm" to "chemistry",
+            "phy" to "physics",
+            "phys" to "physics",
+            "bio" to "biology",
+            "eng" to "english",
+            "lit" to "literature",
+            "agric" to "agricultural",
+            "acct" to "accounts",
+            "accts" to "accounts",
+            "accounting" to "accounts",
+            "comm" to "commerce"
+        )
+        return cleaned.split(" ", ",", "-", "&", "/", "(", ")")
             .map { it.trim() }
             .filter { it.length >= 2 }
+            .flatMap { token ->
+                val alias = tokenAliasMap[token]
+                if (alias != null) alias.split(" ") else listOf(token)
+            }
             .distinct()
     }
 

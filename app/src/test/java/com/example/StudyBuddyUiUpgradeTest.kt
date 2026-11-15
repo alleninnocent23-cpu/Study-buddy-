@@ -299,9 +299,17 @@ class StudyBuddyUiUpgradeTest {
         assertTrue(waecPhysics.isNotEmpty())
         assertTrue(waecPhysics.map { it.year }.distinct().size >= 3)
         assertTrue(waecPhysics.all { it.explanation.isNotBlank() && it.exam == ExamType.WAEC })
+        assertTrue(waecPhysics.any { it.whyOthersAreWrong.isNotEmpty() })
+
+        val waecPhyAlias = WaecJambQuestionBank.searchPastQuestions(
+            query = "phy",
+            examFilter = ExamType.WAEC
+        )
+        assertTrue(waecPhyAlias.isNotEmpty())
+        assertTrue(waecPhyAlias.any { it.subject == "Physics" })
 
         val jambMath = WaecJambQuestionBank.searchPastQuestions(
-            query = "Mathematics",
+            query = "maths",
             examFilter = ExamType.JAMB
         )
         assertTrue(jambMath.isNotEmpty())

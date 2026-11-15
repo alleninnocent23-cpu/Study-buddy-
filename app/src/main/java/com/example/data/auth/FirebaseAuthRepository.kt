@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -375,8 +376,10 @@ class FirebaseAuthRepository(
                 Log.w(tag, "Error signing out of Firebase: ${e.message}")
             }
             try {
-                CredentialManager.create(appContext)
-                    .clearCredentialState(ClearCredentialStateRequest())
+                withTimeoutOrNull(2000L) {
+                    CredentialManager.create(appContext)
+                        .clearCredentialState(ClearCredentialStateRequest())
+                }
             } catch (e: Exception) {
                 Log.w(tag, "Failed to clear CredentialManager state: ${e.message}")
             }
