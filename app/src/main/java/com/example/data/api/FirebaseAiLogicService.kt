@@ -68,6 +68,16 @@ object FirebaseAiLogicService {
     }
 
     suspend fun execute(request: AiExecutionRequest): String {
+        val configuredFirebaseKey = try {
+            FirebaseApp.getInstance().options.apiKey
+        } catch (_: Throwable) {
+            ""
+        }
+        if (configuredFirebaseKey == "ci-build-placeholder" || configuredFirebaseKey == "dummy_key_for_ci_build") {
+            throw IOException(
+                "This APK was built with a placeholder Firebase config instead of the provisioned app/google-services.json."
+            )
+        }
         val models = resolveFirebaseModels(request.tier)
         return try {
             executeSingleModel(models.primaryModel, models.systemDirective, request)

@@ -139,6 +139,13 @@ class AuthPersistenceAndApiTest {
         assertEquals(RetryableErrorKind.INVALID_KEY_401_403, classification.kind)
         assertTrue(classification.safeMessage.contains("App Check"))
         assertFalse(classification.safeMessage.contains("Configured key rejected"))
+
+        val invalidKeyClassification = RequestRetryService.classifyFailure(
+            httpCode = 400,
+            error = RuntimeException("API key not valid. Please pass a valid API key.")
+        )
+        assertEquals(RetryableErrorKind.INVALID_KEY_401_403, invalidKeyClassification.kind)
+
         assertEquals("", APIKeyManager.getBuildConfigGeminiKey())
         assertEquals("", GeminiClient.getEffectiveApiKey())
     }

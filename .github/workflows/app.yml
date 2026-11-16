@@ -124,58 +124,66 @@ jobs:
         shell: bash
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
         run: |
           set -e
           mkdir -p app
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+          if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
             printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
           elif [ ! -s "app/google-services.json" ]; then
-            cat << 'EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "100000000000",
-              "project_id": "studybuddy-app",
-              "storage_bucket": "studybuddy-app.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:100000000000:android:studybuddy1",
-                  "android_client_info": {
-                    "package_name": "com.aistudio.studybuddy.xkjqmw"
-                  }
-                },
-                "oauth_client": [
-                  {
-                    "client_id": "100000000000-ciplaceholder.apps.googleusercontent.com",
-                    "client_type": 3
-                  }
-                ],
-                "api_key": [{ "current_key": "ci-build-placeholder" }],
-                "services": { "analytics_service": { "status": 1 } }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
+            echo "ERROR: app/google-services.json is missing from the repository and secrets.GOOGLE_SERVICES_JSON is not set."
+            echo "Push app/google-services.json and app/src/main/res/values/firebase_applet_config.xml from AI Studio to GitHub."
+            exit 1
           fi
 
-          python3 -c "
+          python3 - << 'PY'
           import json
+          import os
+          import xml.etree.ElementTree as ET
+
           with open('app/google-services.json') as f:
               data = json.load(f)
+
+          project_id = data.get('project_info', {}).get('project_id', '')
           clients = data.get('client', [])
-          valid = any(
+          api_keys = [
+              k.get('current_key', '')
+              for c in clients
+              for k in c.get('api_key', [])
+          ]
+          has_web_oauth = any(
               oauth.get('client_type') == 3
-              for client in clients
-              for oauth in client.get('oauth_client', [])
+              for c in clients
+              for oauth in c.get('oauth_client', [])
           )
-          if not valid:
+
+          if not has_web_oauth:
+              raise SystemExit('ERROR: Missing Web OAuth client (client_type 3) in app/google-services.json')
+
+          placeholders = {'ci-build-placeholder', 'dummy_key_for_ci_build', ''}
+          if project_id in ('studybuddy-app', 'remixed-project-id', '') or not api_keys or any(k in placeholders for k in api_keys):
               raise SystemExit(
-                  'ERROR: Missing Web OAuth client (client_type 3) in app/google-services.json'
+                  'ERROR: app/google-services.json contains a placeholder Firebase project/API key. '
+                  'Commit the provisioned app/google-services.json from AI Studio or update the GOOGLE_SERVICES_JSON secret.'
               )
-          print('Validated app/google-services.json successfully.')
-          "
+
+          build_type = os.environ.get('BUILD_TYPE', 'both')
+          if build_type in ('release', 'both'):
+              cfg_path = 'app/src/main/res/values/firebase_applet_config.xml'
+              if not os.path.exists(cfg_path):
+                  raise SystemExit(
+                      f'ERROR: Missing {cfg_path} (required for Release Firebase App Check recaptcha_site_key).'
+                  )
+              root = ET.parse(cfg_path).getroot()
+              site_key = ''
+              for elem in root.findall('string'):
+                  if elem.attrib.get('name') == 'recaptcha_site_key':
+                      site_key = (elem.text or '').strip()
+              if not site_key:
+                  raise SystemExit(f'ERROR: recaptcha_site_key is empty or missing in {cfg_path}.')
+
+          print('Validated app/google-services.json and App Check configuration successfully.')
+          PY
 
           if [ ! -f ".env" ]; then
             if [ -f ".env.example" ]; then
@@ -322,7 +330,7 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
           mkdir -p app
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+          if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
             printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
           fi
           if [ ! -f ".env" ]; then
@@ -332,8 +340,13 @@ jobs:
               touch .env
             fi
           fi
-          sed -i 's/\r$//' ./gradlew
-          chmod +x ./gradlew
+          if [ -f "./gradlew" ]; then
+            sed -i 's/\r$//' ./gradlew
+            chmod +x ./gradlew
+          else
+            gradle wrapper --gradle-version 9.3.1
+            chmod +x ./gradlew
+          fi
 
       - name: Run Unit Tests
         shell: bash

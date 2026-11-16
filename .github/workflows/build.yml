@@ -111,46 +111,24 @@ jobs:
           mkdir -p app
 
           # Configure app/google-services.json
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
             echo "Configured app/google-services.json from GitHub Secrets."
-          elif [ ! -f "app/google-services.json" ]; then
-            echo "Creating valid app/google-services.json matching applicationId and namespace..."
-            cat << 'EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "100000000000",
-              "project_id": "studybuddy-app",
-              "storage_bucket": "studybuddy-app.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:100000000000:android:studybuddy1",
-                  "android_client_info": {
-                    "package_name": "com.aistudio.studybuddy.xkjqmw"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
-                "services": { "analytics_service": { "status": 1 } }
-              },
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:100000000000:android:studybuddy2",
-                  "android_client_info": {
-                    "package_name": "com.example"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [{ "current_key": "dummy_key_for_ci_build" }],
-                "services": { "analytics_service": { "status": 1 } }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
+          elif [ ! -s "app/google-services.json" ]; then
+            echo "ERROR: app/google-services.json is missing from the repository and secrets.GOOGLE_SERVICES_JSON is not set."
+            exit 1
           fi
+
+          python3 - << 'PY'
+          import json
+          with open('app/google-services.json') as f:
+              data = json.load(f)
+          project_id = data.get('project_info', {}).get('project_id', '')
+          api_keys = [k.get('current_key', '') for c in data.get('client', []) for k in c.get('api_key', [])]
+          placeholders = {'ci-build-placeholder', 'dummy_key_for_ci_build', ''}
+          if project_id in ('studybuddy-app', 'remixed-project-id', '') or not api_keys or any(k in placeholders for k in api_keys):
+              raise SystemExit('ERROR: app/google-services.json contains a placeholder Firebase project/API key.')
+          PY
 
           # Setup .env for Secrets Gradle Plugin
           touch .env
