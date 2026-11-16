@@ -197,7 +197,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          if [ -f "./gradlew" ]; then
+          if [ -f "./gradlew" ] && [ -s "./gradle/wrapper/gradle-wrapper.jar" ]; then
             sed -i 's/\r$//' ./gradlew
             chmod +x ./gradlew
           else
@@ -340,7 +340,7 @@ jobs:
               touch .env
             fi
           fi
-          if [ -f "./gradlew" ]; then
+          if [ -f "./gradlew" ] && [ -s "./gradle/wrapper/gradle-wrapper.jar" ]; then
             sed -i 's/\r$//' ./gradlew
             chmod +x ./gradlew
           else
