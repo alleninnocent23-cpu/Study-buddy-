@@ -109,9 +109,18 @@ object AiApiManager {
     private var appContext: Context? = null
 
     fun initialize(context: Context) {
-        if (appContext != null && _keysList.value.isNotEmpty()) return
-        appContext = context.applicationContext ?: context
-        val loaded = APIKeyManager.initialize(appContext!!)
+        val resolvedContext = context.applicationContext ?: context
+        appContext = resolvedContext
+        if (_keysList.value.isNotEmpty()) {
+            val withFirebase = attachFirebaseAiLogicIfAvailable(_keysList.value)
+            if (withFirebase != _keysList.value) {
+                withFirebase.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+                _keysList.value = withFirebase
+                _activeKeyId.value = withFirebase.firstOrNull { it.isAvailableNow() }?.id ?: withFirebase.firstOrNull()?.id
+            }
+            return
+        }
+        val loaded = APIKeyManager.initialize(resolvedContext)
         val combined = attachFirebaseAiLogicIfAvailable(loaded)
         combined.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
         _keysList.value = combined

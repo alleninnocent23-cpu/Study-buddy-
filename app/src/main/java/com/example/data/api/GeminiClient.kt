@@ -531,7 +531,7 @@ object GeminiClient {
         ) { keyEntry ->
             val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
             if (effectiveKey.isBlank()) {
-                return@executeWithFailover Result.failure(IllegalStateException("No API key available"))
+                return@executeWithFailover Result.failure(IllegalStateException("AI quiz service credentials are not configured."))
             }
             try {
                 val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
@@ -929,7 +929,7 @@ object GeminiClient {
             ) { keyEntry ->
                 val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
                 if (effectiveKey.isBlank()) {
-                    return@executeWithFailover Result.failure(IllegalStateException("No API key configured"))
+                    return@executeWithFailover Result.failure(IllegalStateException("AI exam service credentials are not configured."))
                 }
                 try {
                     val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)

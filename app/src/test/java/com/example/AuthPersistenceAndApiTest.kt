@@ -198,4 +198,33 @@ class AuthPersistenceAndApiTest {
         assertEquals(1, reloaded.size)
         assertEquals(com.example.data.api.KeyHealthStatus.INVALID, reloaded.first().status)
     }
+
+    @Test
+    fun `release recaptcha_site_key resource resolves cleanly and rotation prioritizes firebase ai logic`() {
+        val resId = app.resources.getIdentifier("recaptcha_site_key", "string", app.packageName)
+        assertTrue("recaptcha_site_key must resolve via package resource lookup for Release App Check", resId != 0)
+        assertTrue("recaptcha_site_key must be non-blank", app.getString(resId).isNotBlank())
+
+        val candidates = com.example.data.api.APIKeyRotationService.selectOrderedCandidates(
+            allKeys = listOf(
+                com.example.data.api.ApiKeyEntry(
+                    id = "custom-groq",
+                    provider = com.example.data.api.AiProviderType.GROQ,
+                    key = "gsk_customKey123456",
+                    label = "Groq",
+                    priority = 1
+                ),
+                com.example.data.api.ApiKeyEntry(
+                    id = com.example.data.api.FirebaseAiLogicService.VIRTUAL_KEY_ID,
+                    provider = com.example.data.api.AiProviderType.GEMINI,
+                    key = com.example.data.api.FirebaseAiLogicService.VIRTUAL_KEY_SENTINEL,
+                    label = "StudyBuddy AI (Firebase App Check)",
+                    priority = 1
+                )
+            ),
+            tier = com.example.data.api.StudyBuddyModelTier.FREE,
+            capability = com.example.data.api.AiTaskCapability.TEXT_CHAT
+        )
+        assertEquals(com.example.data.api.FirebaseAiLogicService.VIRTUAL_KEY_ID, candidates.firstOrNull()?.id)
+    }
 }

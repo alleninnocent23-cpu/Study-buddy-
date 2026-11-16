@@ -78,6 +78,7 @@ object APIKeyRotationService {
             compareBy<ApiKeyEntry>(
                 { if (it.status == KeyHealthStatus.HEALTHY) 0 else 1 },
                 { it.priority },
+                { if (FirebaseAiLogicService.isVirtualKey(it)) 0 else 1 },
                 {
                     val idx = orderedProviders.indexOf(it.provider)
                     if (idx >= 0) idx else 99

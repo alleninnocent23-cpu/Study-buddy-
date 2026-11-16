@@ -228,6 +228,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         GeminiClient.activeModelTier = selectedModelTier.value
+        com.example.data.api.AiApiManager.initialize(application)
         // Restore active Firebase Google / persisted session on cold launch so user doesn't have to re-sign in
         viewModelScope.launch {
             val restored = authRepository.restoreSignedInUser()
