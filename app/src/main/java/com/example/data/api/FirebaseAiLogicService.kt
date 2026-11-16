@@ -54,6 +54,9 @@ object FirebaseAiLogicService {
     fun isAvailable(context: Context?): Boolean {
         val ctx = context ?: return false
         return try {
+            if (FirebaseApp.getApps(ctx).isEmpty()) {
+                FirebaseApp.initializeApp(ctx)
+            }
             FirebaseApp.getApps(ctx).isNotEmpty()
         } catch (_: Throwable) {
             false

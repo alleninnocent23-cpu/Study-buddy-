@@ -122,13 +122,12 @@ object AiApiManager {
         if (!FirebaseAiLogicService.isAvailable(appContext)) return existing
         if (existing.any { it.id == FirebaseAiLogicService.VIRTUAL_KEY_ID }) return existing
 
-        val hasRealGeminiKey = existing.any { it.provider == AiProviderType.GEMINI && it.key.isNotBlank() }
         val firebaseEntry = ApiKeyEntry(
             id = FirebaseAiLogicService.VIRTUAL_KEY_ID,
             provider = AiProviderType.GEMINI,
             key = FirebaseAiLogicService.VIRTUAL_KEY_SENTINEL,
             label = "StudyBuddy AI (Firebase App Check)",
-            priority = if (hasRealGeminiKey) 2 else 1,
+            priority = 1,
             isEnabled = true
         )
         return (existing + firebaseEntry).sortedBy { it.priority }
@@ -225,10 +224,13 @@ object AiApiManager {
         ensureSeededFromBuildConfigIfEmpty()
 
         val allConfiguredKeys = _keysList.value
-        val maxAttempts = minOf(
+        val activeCandidateCount = allConfiguredKeys.count {
+            it.isEnabled && it.key.isNotBlank() && it.status != KeyHealthStatus.INVALID
+        }
+        val maxAttempts = maxOf(
             RequestRetryService.DEFAULT_MAX_ATTEMPTS,
-            maxOf(1, allConfiguredKeys.count { it.isEnabled && it.key.isNotBlank() } * 2)
-        )
+            activeCandidateCount + 2
+        ).coerceAtMost(12)
 
         val triedKeyIds = mutableSetOf<String>()
         var attempts = 0

@@ -142,4 +142,60 @@ class AuthPersistenceAndApiTest {
         assertEquals("", APIKeyManager.getBuildConfigGeminiKey())
         assertEquals("", GeminiClient.getEffectiveApiKey())
     }
+
+    @Test
+    fun `api key manager purges legacy built in keys and persists invalid health status`() {
+        app.getSharedPreferences("studybuddy_secure_ai_keys_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
+        APIKeyManager.initialize(app)
+        APIKeyManager.saveKeys(
+            app,
+            listOf(
+                com.example.data.api.ApiKeyEntry(
+                    id = "gemini-primary-built-in",
+                    provider = com.example.data.api.AiProviderType.GEMINI,
+                    key = "AIzaSyStalePlaceholderKey",
+                    label = "Legacy Built-In",
+                    priority = 1
+                ),
+                com.example.data.api.ApiKeyEntry(
+                    id = "user-invalid-key",
+                    provider = com.example.data.api.AiProviderType.GEMINI,
+                    key = "AIzaSyBadUserKey1234",
+                    label = "Invalid Key",
+                    priority = 2,
+                    status = com.example.data.api.KeyHealthStatus.INVALID
+                )
+            )
+        )
+
+        // Force upgrade purge path
+        app.getSharedPreferences("studybuddy_secure_ai_keys_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .remove("purged_legacy_seeded_keys_v2")
+            .commit()
+
+        val afterPurge = APIKeyManager.initialize(app)
+        assertTrue("Legacy built-in and invalid keys must be purged on upgrade", afterPurge.isEmpty())
+
+        // Persisting INVALID status survives subsequent initializations
+        APIKeyManager.saveKeys(
+            app,
+            listOf(
+                com.example.data.api.ApiKeyEntry(
+                    id = "k-invalid",
+                    provider = com.example.data.api.AiProviderType.GROQ,
+                    key = "gsk_badKey9999",
+                    label = "Bad Groq Key",
+                    status = com.example.data.api.KeyHealthStatus.INVALID
+                )
+            )
+        )
+        val reloaded = APIKeyManager.initialize(app)
+        assertEquals(1, reloaded.size)
+        assertEquals(com.example.data.api.KeyHealthStatus.INVALID, reloaded.first().status)
+    }
 }

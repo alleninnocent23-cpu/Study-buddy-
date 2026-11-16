@@ -690,58 +690,18 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 )
                 refreshRewards(isTaskCompletionEvent = true)
             }.onFailure { err ->
-                val fallback = getCuratedExplanation(promptText, state.selectedSubject)
-                val cleanedText = SmartSuggestionGenerator.cleanResponseText(fallback.explanationText)
-                val suggestions = SmartSuggestionGenerator.getFollowUpSuggestions(promptText, fallback.explanationText, state.selectedSubject)
-                val webImages = webImagesDeferred?.await() ?: emptyList()
-
-                val generatedFile = if (fileRequest != null) {
-                    try {
-                        UniversalFileGenerator.generateFileFromContent(
-                            context = getApplication(),
-                            topic = promptText,
-                            content = cleanedText,
-                            targetExtension = fileRequest.first,
-                            subject = state.selectedSubject
-                        )
-                    } catch (e: Exception) {
-                        null
-                    }
-                } else null
-
-                val generatedAiImageUrl = if (isExplicitAiImageRequest) {
-                    try {
-                        GeminiClient.generateEducationalImage(
-                            prompt = promptText,
-                            topic = promptText.take(30),
-                            subject = state.selectedSubject
-                        ).getOrNull()
-                    } catch (e: Exception) {
-                        null
-                    }
-                } else null
-
-                val assistantMsg = ChatMessage(
+                val rawErrMsg = err.message?.takeIf { it.isNotBlank() }
+                    ?: "Unable to reach StudyBuddy AI right now."
+                val assistantErrorMsg = ChatMessage(
                     sender = MessageSender.ASSISTANT,
-                    text = cleanedText,
-                    diagramType = fallback.diagramType,
-                    diagramTitle = fallback.diagramTitle,
-                    generatedFile = generatedFile,
-                    followUpSuggestions = suggestions,
-                    generatedAiImageUrl = generatedAiImageUrl,
-                    searchImages = webImages
+                    text = "I couldn't generate an answer right now: $rawErrMsg\n\nPlease check your internet connection or try again in a moment."
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
-                    currentExplanation = fallback.copy(explanationText = cleanedText),
-                    messages = tutorState.value.messages + assistantMsg,
-                    error = "Note: Live Gemini API message: ${err.message}. Showing built-in explanation."
+                    messages = tutorState.value.messages + assistantErrorMsg,
+                    error = rawErrMsg
                 )
                 clearAttachment()
-
-                if (tutorState.value.isVoiceModeActive) {
-                    voiceManager.speak(cleanedText)
-                }
             }
         }
     }
@@ -1120,28 +1080,11 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 )
             }.onFailure { err ->
-                // Fallback scan demonstration with clean academic response
-                val fallback = ExplanationResult(
-                    explanationText = """
-                        Homework Scanner Solution
-                        
-                        Problem Detected: Solve for x: 3(x - 4) + 2x = 23
-                        
-                        Step-by-Step Solution:
-                        1. Distribute the 3: 3*x - 3*4 + 2x = 23 -> 3x - 12 + 2x = 23
-                        2. Combine like terms: (3x + 2x) - 12 = 23 -> 5x - 12 = 23
-                        3. Isolate the variable term: Add 12 to both sides: 5x = 23 + 12 -> 5x = 35
-                        4. Solve for x: Divide both sides by 5: x = 35 / 5 -> x = 7
-                        
-                        Verification: 3(7 - 4) + 2(7) = 3(3) + 14 = 9 + 14 = 23. The solution is confirmed correct.
-                    """.trimIndent(),
-                    diagramType = "cartesian_graph",
-                    diagramTitle = "Linear Function Intersect"
-                )
                 scannerState.value = scannerState.value.copy(
                     isAnalyzing = false,
-                    scanResult = fallback,
-                    error = "Notice: Vision API reported: ${err.message}. Displayed simulated OCR extraction."
+                    scanResult = null,
+                    error = err.message?.takeIf { it.isNotBlank() }
+                        ?: "Homework analysis failed. Please check your connection and try again."
                 )
             }
         }

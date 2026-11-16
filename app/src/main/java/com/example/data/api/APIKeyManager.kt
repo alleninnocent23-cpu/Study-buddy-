@@ -33,35 +33,44 @@ object APIKeyManager {
     private const val KEYSTORE_ALIAS = "studybuddy_api_key_aes_v1"
     private const val GCM_TAG_BITS = 128
 
+    private const val PREF_LEGACY_PURGE_V2 = "purged_legacy_seeded_keys_v2"
     private var prefs: SharedPreferences? = null
 
     fun initialize(context: Context): List<ApiKeyEntry> {
         val appContext = context.applicationContext ?: context
-        if (prefs == null) {
-            prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        }
-
-        val currentPrefs = prefs ?: return seedDefaultKeys()
+        val currentPrefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = currentPrefs
 
         // 1. Try loading encrypted v2 payload
         val encrypted = currentPrefs.getString(KEY_ENCRYPTED_PAYLOAD, null)
         if (!encrypted.isNullOrBlank()) {
             val decrypted = decryptString(appContext, encrypted)
-            val parsed = parseKeysJson(decrypted)
+            var parsed = parseKeysJson(decrypted)
+            if (!currentPrefs.getBoolean(PREF_LEGACY_PURGE_V2, false)) {
+                parsed = parsed.filterNot {
+                    it.id == "gemini-primary-built-in" || it.status == KeyHealthStatus.INVALID
+                }
+                currentPrefs.edit().putBoolean(PREF_LEGACY_PURGE_V2, true).commit()
+                saveKeys(appContext, parsed)
+            }
             if (parsed.isNotEmpty()) {
                 return mergeBuildConfigDefaultIfMissing(parsed)
             }
+        } else if (!currentPrefs.getBoolean(PREF_LEGACY_PURGE_V2, false)) {
+            currentPrefs.edit().putBoolean(PREF_LEGACY_PURGE_V2, true).commit()
         }
 
-        // 2. Migrate legacy plain JSON if present, then erase legacy plaintext key entries
+        // 2. Migrate legacy plain JSON if present (filtering out invalid/built-in placeholders), then erase
         val legacyPrefs = appContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
         val legacyJson = legacyPrefs.getString(LEGACY_KEY_JSON, null)
         if (!legacyJson.isNullOrBlank()) {
-            val migrated = parseKeysJson(legacyJson)
+            val migrated = parseKeysJson(legacyJson).filterNot {
+                it.id == "gemini-primary-built-in" || it.status == KeyHealthStatus.INVALID
+            }
+            legacyPrefs.edit().remove(LEGACY_KEY_JSON).apply()
             if (migrated.isNotEmpty()) {
                 val merged = mergeBuildConfigDefaultIfMissing(migrated)
                 saveKeys(appContext, merged)
-                legacyPrefs.edit().remove(LEGACY_KEY_JSON).apply()
                 return merged
             }
         }
@@ -72,8 +81,9 @@ object APIKeyManager {
     }
 
     fun saveKeys(context: Context?, entries: List<ApiKeyEntry>) {
-        val p = prefs ?: return
         val appContext = context?.applicationContext ?: context
+        val p = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) ?: prefs ?: return
+        prefs = p
         try {
             val persistable = entries.filterNot { FirebaseAiLogicService.isVirtualKey(it) }
             val json = serializeKeysJson(persistable)
@@ -91,6 +101,7 @@ object APIKeyManager {
             trimmed.isEmpty() -> "(unconfigured)"
             trimmed.length <= 8 -> "••••••••"
             trimmed.startsWith("AIzaSy") -> "AIzaSy••••" + trimmed.takeLast(4)
+            trimmed.startsWith("AQ.") -> "AQ.••••" + trimmed.takeLast(4)
             trimmed.startsWith("sk-or-") -> "sk-or-••••" + trimmed.takeLast(4)
             trimmed.startsWith("gsk_") -> "gsk_••••" + trimmed.takeLast(4)
             else -> trimmed.take(4) + "••••••••" + trimmed.takeLast(4)
@@ -148,6 +159,7 @@ object APIKeyManager {
                 put("label", entry.label)
                 put("priority", entry.priority)
                 put("isEnabled", entry.isEnabled)
+                put("status", entry.status.name)
                 put("totalRequests", entry.totalRequests)
                 put("successfulRequests", entry.successfulRequests)
                 put("failedRequests", entry.failedRequests)
@@ -171,6 +183,11 @@ object APIKeyManager {
                 } catch (_: Exception) {
                     AiProviderType.GEMINI
                 }
+                val parsedStatus = try {
+                    KeyHealthStatus.valueOf(obj.optString("status", KeyHealthStatus.HEALTHY.name))
+                } catch (_: Exception) {
+                    KeyHealthStatus.HEALTHY
+                }
                 list.add(
                     ApiKeyEntry(
                         id = obj.optString("id", UUID.randomUUID().toString()),
@@ -179,6 +196,7 @@ object APIKeyManager {
                         label = obj.optString("label", "${provider.displayName} Key"),
                         priority = obj.optInt("priority", 1),
                         isEnabled = obj.optBoolean("isEnabled", true),
+                        status = if (parsedStatus == KeyHealthStatus.INVALID) KeyHealthStatus.INVALID else KeyHealthStatus.HEALTHY,
                         totalRequests = obj.optInt("totalRequests", 0),
                         successfulRequests = obj.optInt("successfulRequests", 0),
                         failedRequests = obj.optInt("failedRequests", 0),
