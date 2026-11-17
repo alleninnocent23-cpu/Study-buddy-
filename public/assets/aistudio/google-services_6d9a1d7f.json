@@ -1,0 +1,92 @@
+{
+  "project_info": {
+    "project_number": "331147424452",
+    "project_id": "gen-lang-client-0852684377",
+    "storage_bucket": "gen-lang-client-0852684377.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:331147424452:android:cecfb8ae0b7f3417280f91",
+        "android_client_info": {
+          "package_name": "com.aistudio.appbox.store"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "331147424452-525f83qf7enh50kpodj1juugmdhb985a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.appbox.store",
+            "certificate_hash": "6f848b30934bf911a4792bf0944cdbdddac53a18"
+          }
+        },
+        {
+          "client_id": "331147424452-nsdil7nntj0rgd610opj15g1a3frn9jl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.appbox.store",
+            "certificate_hash": "8c8c392027475478ecf5c45316ec919eb38c36ab"
+          }
+        },
+        {
+          "client_id": "331147424452-q3l82bub85io4m4vrl4513stjr62ibsk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBx5JadUacscz5M5G9vC1KhQMcne36C2eI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "331147424452-q3l82bub85io4m4vrl4513stjr62ibsk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:331147424452:android:e178f0988a6703c7280f91",
+        "android_client_info": {
+          "package_name": "com.aistudio.studybuddy.xkjqmw"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "331147424452-un881caqkr1mtdp0e26i0ghrvmo94gd5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.studybuddy.xkjqmw",
+            "certificate_hash": "39b23b58b95fd31dfce59ac79d59187a897facd4"
+          }
+        },
+        {
+          "client_id": "331147424452-q3l82bub85io4m4vrl4513stjr62ibsk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBx5JadUacscz5M5G9vC1KhQMcne36C2eI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "331147424452-q3l82bub85io4m4vrl4513stjr62ibsk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

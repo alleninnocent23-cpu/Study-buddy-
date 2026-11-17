@@ -4,15 +4,19 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
+import com.example.BuildConfig
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.appcheck.FirebaseAppCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
+import kotlin.coroutines.resume
 
 /**
  * Executes generative AI inference via provisioned Firebase AI Logic (Firebase.ai + App Check)
@@ -98,8 +102,46 @@ object FirebaseAiLogicService {
                 if (fallbackErr is TimeoutCancellationException || primaryErr is TimeoutCancellationException) {
                     throw IOException("AI response timed out after 60 seconds. Please try again.")
                 }
-                throw IOException(fallbackErr.localizedMessage ?: primaryErr.localizedMessage ?: "Firebase AI generation failed.")
+                val rawMessage = fallbackErr.localizedMessage ?: primaryErr.localizedMessage ?: "Firebase AI generation failed."
+                val diagnostic = enrichAppCheckErrorIfNeeded(rawMessage)
+                throw IOException(diagnostic)
             }
+        }
+    }
+
+    private suspend fun enrichAppCheckErrorIfNeeded(rawMessage: String): String {
+        val lower = rawMessage.lowercase()
+        if (!lower.contains("app check") && !lower.contains("attestation")) {
+            return rawMessage
+        }
+
+        if (BuildConfig.DEBUG && !AppCheckDiagnostics.hasLaunchDebugToken) {
+            return "Debug APK App Check is not authorized on standalone devices. Install StudyBuddy-release.apk (not StudyBuddy-debug.apk)."
+        }
+
+        val tokenError = try {
+            withTimeout(8_000L) {
+                suspendCancellableCoroutine<String?> { cont ->
+                    FirebaseAppCheck.getInstance().getAppCheckToken(false)
+                        .addOnSuccessListener {
+                            if (cont.isActive) cont.resume(null)
+                        }
+                        .addOnFailureListener { ex ->
+                            if (cont.isActive) cont.resume(ex.localizedMessage ?: ex.javaClass.simpleName)
+                        }
+                }
+            }
+        } catch (t: TimeoutCancellationException) {
+            "App Check token request timed out."
+        } catch (t: Throwable) {
+            t.localizedMessage ?: t.javaClass.simpleName
+        }
+
+        val status = AppCheckDiagnostics.statusSummary
+        return if (!tokenError.isNullOrBlank()) {
+            "App Check ($status) failed: $tokenError"
+        } else {
+            "$rawMessage [$status]"
         }
     }
 

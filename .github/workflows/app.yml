@@ -1,4 +1,4 @@
-name: App Build & Release (StudyBuddy)
+name: App Release APK (StudyBuddy)
 
 on:
   push:
@@ -12,16 +12,6 @@ on:
       - main
       - master
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build Type (debug, release, or both)'
-        required: true
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - debug
-          - release
 
 permissions:
   contents: write
@@ -32,7 +22,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build StudyBuddy APK
+    name: Build StudyBuddy Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -82,31 +72,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Restore or Generate Keystores
+      - name: Restore or Generate Release Keystore
         shell: bash
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           set -e
-          if [ -s "debug.keystore.base64" ]; then
-            tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
-          fi
-          if [ ! -s "debug.keystore" ]; then
-            keytool -genkeypair -noprompt \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          mkdir -p app
-          cp debug.keystore app/debug.keystore 2>/dev/null || true
-
           if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
             printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > my-upload-key.jks
+            echo "Restored persistent release keystore from secrets.RELEASE_KEYSTORE_BASE64."
           elif [ ! -s "my-upload-key.jks" ]; then
             keytool -genkeypair -noprompt \
               -keystore my-upload-key.jks \
@@ -117,7 +91,16 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Upload,O=Android,C=US"
+            echo "WARNING: Generated ephemeral release keystore because secrets.RELEASE_KEYSTORE_BASE64 is not set."
+            echo "For Google Sign-In on Release APKs, set RELEASE_KEYSTORE_BASE64 / STORE_PASSWORD / KEY_PASSWORD in GitHub Secrets and register its SHA-1 and SHA-256 in Firebase Console."
           fi
+
+          echo "Release signing certificate fingerprints (register both in Firebase Console for com.aistudio.studybuddy.xkjqmw):"
+          keytool -list -v \
+            -keystore my-upload-key.jks \
+            -alias upload \
+            -storepass "$STORE_PASSWORD" 2>/dev/null | grep -E 'SHA1:|SHA256:' || true
+
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> "$GITHUB_ENV"
 
       - name: Configure Google Services & Env
@@ -125,7 +108,6 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON || vars.GOOGLE_SERVICES_JSON }}
           FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML || vars.FIREBASE_APPLET_CONFIG_XML }}
-          BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
         run: |
           set -e
           mkdir -p app app/src/main/res/values
@@ -183,22 +165,20 @@ jobs:
                   'Commit the provisioned app/google-services.json from AI Studio or update the GOOGLE_SERVICES_JSON secret.'
               )
 
-          build_type = os.environ.get('BUILD_TYPE', 'both')
-          if build_type in ('release', 'both'):
-              cfg_path = 'app/src/main/res/values/firebase_applet_config.xml'
-              if not os.path.exists(cfg_path):
-                  raise SystemExit(
-                      f'ERROR: Missing {cfg_path} (required for Release Firebase App Check recaptcha_site_key).'
-                  )
-              root = ET.parse(cfg_path).getroot()
-              site_key = ''
-              for elem in root.findall('string'):
-                  if elem.attrib.get('name') == 'recaptcha_site_key':
-                      site_key = (elem.text or '').strip()
-              if not site_key:
-                  raise SystemExit(f'ERROR: recaptcha_site_key is empty or missing in {cfg_path}.')
+          cfg_path = 'app/src/main/res/values/firebase_applet_config.xml'
+          if not os.path.exists(cfg_path):
+              raise SystemExit(
+                  f'ERROR: Missing {cfg_path} (required for Release Firebase App Check recaptcha_site_key).'
+              )
+          root = ET.parse(cfg_path).getroot()
+          site_key = ''
+          for elem in root.findall('string'):
+              if elem.attrib.get('name') == 'recaptcha_site_key':
+                  site_key = (elem.text or '').strip()
+          if not site_key:
+              raise SystemExit(f'ERROR: recaptcha_site_key is empty or missing in {cfg_path}.')
 
-          print('Validated app/google-services.json and App Check configuration successfully.')
+          print('Validated app/google-services.json and Release App Check configuration successfully.')
           PY
 
           if [ ! -f ".env" ]; then
@@ -221,10 +201,8 @@ jobs:
             chmod +x ./gradlew
           fi
 
-      - name: Build Android APK
+      - name: Build Android Release APK
         shell: bash
-        env:
-          BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
         run: |
           set -e
           mkdir -p dist
@@ -235,35 +213,22 @@ jobs:
             "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
           )
 
-          if [ "$BUILD_TYPE" = "debug" ] || [ "$BUILD_TYPE" = "both" ]; then
-            ./gradlew :app:assembleDebug "${GRADLE_ARGS[@]}"
-            APK_DEBUG=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
-            if [ -n "$APK_DEBUG" ] && [ -f "$APK_DEBUG" ]; then
-              cp "$APK_DEBUG" dist/StudyBuddy-debug.apk
-            else
-              echo "ERROR: Debug APK not found"
-              exit 1
-            fi
-          fi
-
-          if [ "$BUILD_TYPE" = "release" ] || [ "$BUILD_TYPE" = "both" ]; then
-            ./gradlew :app:assembleRelease "${GRADLE_ARGS[@]}"
-            APK_RELEASE=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
-            if [ -n "$APK_RELEASE" ] && [ -f "$APK_RELEASE" ]; then
-              cp "$APK_RELEASE" dist/StudyBuddy-release.apk
-            else
-              echo "ERROR: Release APK not found"
-              exit 1
-            fi
+          ./gradlew :app:assembleRelease "${GRADLE_ARGS[@]}"
+          APK_RELEASE=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+          if [ -n "$APK_RELEASE" ] && [ -f "$APK_RELEASE" ]; then
+            cp "$APK_RELEASE" dist/StudyBuddy-release.apk
+          else
+            echo "ERROR: Release APK not found"
+            exit 1
           fi
 
           ls -lh dist/
 
-      - name: Upload APK Artifact
+      - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: StudyBuddy-APK
-          path: dist/*.apk
+          name: StudyBuddy-Release-APK
+          path: dist/StudyBuddy-release.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -271,7 +236,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.apk
+          files: dist/StudyBuddy-release.apk
           name: "StudyBuddy Release ${{ github.ref_name }}"
           generate_release_notes: true
           draft: false

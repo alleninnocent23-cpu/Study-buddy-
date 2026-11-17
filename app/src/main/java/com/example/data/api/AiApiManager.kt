@@ -526,7 +526,8 @@ object AiApiManager {
             val classification = RequestRetryService.classifyFailure(
                 httpCode = (e as? ProviderHttpException)?.httpCode,
                 error = e,
-                sensitiveKeys = listOf(keyEntry.key)
+                sensitiveKeys = listOf(keyEntry.key),
+                isFirebaseAppCheckRoute = FirebaseAiLogicService.isVirtualKey(keyEntry)
             )
             handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
             Log.w(TAG, "Validation failed for ${keyEntry.label}: ${classification.safeMessage}")

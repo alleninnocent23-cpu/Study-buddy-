@@ -142,7 +142,13 @@ class StudyNotificationScheduler(private val context: Context) {
             }
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID_WELCOME, notification)
+        try {
+            notificationManager.notify(NOTIFICATION_ID_WELCOME, notification)
+        } catch (e: SecurityException) {
+            Log.w("StudyNotification", "Welcome notification skipped (permission missing): ${e.message}")
+        } catch (e: Exception) {
+            Log.w("StudyNotification", "Failed to show welcome notification: ${e.message}")
+        }
     }
 
     /**
@@ -175,7 +181,13 @@ class StudyNotificationScheduler(private val context: Context) {
             }
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID_STUDY, notification)
+        try {
+            notificationManager.notify(NOTIFICATION_ID_STUDY, notification)
+        } catch (e: SecurityException) {
+            Log.w("StudyNotification", "Reminder notification skipped (permission missing): ${e.message}")
+        } catch (e: Exception) {
+            Log.w("StudyNotification", "Failed to show reminder notification: ${e.message}")
+        }
     }
 }
 

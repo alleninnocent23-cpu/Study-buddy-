@@ -396,43 +396,60 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     fun loginWithGoogle(context: Context) {
         viewModelScope.launch {
             authState.value = authState.value.copy(isLoading = true, error = null)
-            val result = authRepository.signInWithGoogle(context)
-            result.onSuccess { authUser ->
-                var user = if (authUser.email.isNotBlank()) userDao.getUserByEmail(authUser.email) else null
-                if (user == null) {
-                    val safeEmail = authUser.email.ifBlank { "google.${authUser.uid.take(8)}@studybuddy.ai" }
-                    val newUser = UserEntity(
-                        name = authUser.displayName,
-                        email = safeEmail,
-                        grade = authUser.grade,
-                        profilePhotoUri = authUser.photoUrl
-                    )
-                    val id = userDao.insertUser(newUser)
-                    user = newUser.copy(id = id)
-                } else {
-                    userDao.updateUserProfile(
-                        userId = user.id,
-                        name = authUser.displayName.ifBlank { user.name },
-                        grade = user.grade,
-                        photoUri = authUser.photoUrl
-                    )
-                    user = user.copy(
-                        name = authUser.displayName.ifBlank { user.name },
-                        profilePhotoUri = authUser.photoUrl ?: user.profilePhotoUri
+            try {
+                val result = authRepository.signInWithGoogle(context)
+                result.onSuccess { authUser ->
+                    var user = if (authUser.email.isNotBlank()) userDao.getUserByEmail(authUser.email) else null
+                    if (user == null) {
+                        val safeEmail = authUser.email.ifBlank { "google.${authUser.uid.take(8)}@studybuddy.ai" }
+                        val newUser = UserEntity(
+                            name = authUser.displayName,
+                            email = safeEmail,
+                            grade = authUser.grade,
+                            profilePhotoUri = authUser.photoUrl
+                        )
+                        val id = userDao.insertUser(newUser)
+                        user = newUser.copy(id = id)
+                    } else {
+                        userDao.updateUserProfile(
+                            userId = user.id,
+                            name = authUser.displayName.ifBlank { user.name },
+                            grade = user.grade,
+                            photoUri = authUser.photoUrl
+                        )
+                        user = user.copy(
+                            name = authUser.displayName.ifBlank { user.name },
+                            profilePhotoUri = authUser.photoUrl ?: user.profilePhotoUri
+                        )
+                    }
+                    _currentUser.value = user
+                    _currentUserId.value = user.id
+                    runCatching {
+                        studyNotificationScheduler.sendWelcomeEmailNotification(user.name, user.email)
+                        studyNotificationScheduler.scheduleBiHourlyStudyReminders()
+                    }
+                    authState.value = authState.value.copy(isLoading = false, error = null)
+                    navigateTo(AppScreen.TUTOR)
+                }.onFailure { err ->
+                    val isPureCancel = err is androidx.credentials.exceptions.GetCredentialCancellationException
+                    authState.value = authState.value.copy(
+                        isLoading = false,
+                        error = if (isPureCancel) {
+                            "Google Sign-In was cancelled before completion. If tapping your email failed, ensure this Release APK's SHA-1/SHA-256 is registered in Firebase Console or sign in with email."
+                        } else {
+                            err.localizedMessage?.takeIf { it.isNotBlank() }
+                                ?: "Google Sign-In failed. Please try again."
+                        }
                     )
                 }
-                _currentUser.value = user
-                _currentUserId.value = user.id
-                // Trigger welcome notification on Google Sign-In
-                studyNotificationScheduler.sendWelcomeEmailNotification(user.name, user.email)
-                studyNotificationScheduler.scheduleBiHourlyStudyReminders()
-                authState.value = authState.value.copy(isLoading = false, error = null)
-                navigateTo(AppScreen.TUTOR)
-            }.onFailure { err ->
-                val isCancelled = err is androidx.credentials.exceptions.GetCredentialCancellationException
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                authState.value = authState.value.copy(isLoading = false)
+                throw e
+            } catch (e: Exception) {
                 authState.value = authState.value.copy(
                     isLoading = false,
-                    error = if (isCancelled) null else (err.localizedMessage ?: "Google Sign-In failed. Please try again.")
+                    error = e.localizedMessage?.takeIf { it.isNotBlank() }
+                        ?: "Google Sign-In failed. Please try again."
                 )
             }
         }

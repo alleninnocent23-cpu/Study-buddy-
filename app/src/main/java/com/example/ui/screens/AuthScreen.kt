@@ -38,6 +38,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +67,7 @@ import com.example.ui.theme.TextSubtle
 import com.example.ui.theme.TrueBlack
 import com.example.viewmodel.AuthState
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AuthScreen(
     state: AuthState,
@@ -76,8 +81,15 @@ fun AuthScreen(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val errorBannerRequester = remember { BringIntoViewRequester() }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+
+    LaunchedEffect(state.error) {
+        if (state.error != null) {
+            errorBannerRequester.bringIntoView()
+        }
+    }
 
     val gradeOptions = listOf(
         "Middle School",
@@ -316,27 +328,6 @@ fun AuthScreen(
                 }
             }
 
-            if (state.error != null) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF2B1215),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color(0xFF7F1D1D), RoundedCornerShape(8.dp))
-                        .testTag("auth_error_banner")
-                ) {
-                    Text(
-                        text = state.error,
-                        color = Color(0xFFFCA5A5),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        lineHeight = 17.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(36.dp))
 
             // Primary Solid Button (matches reference design: white rectangle, black bold text)
@@ -396,7 +387,29 @@ fun AuthScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            if (state.error != null) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF2B1215),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(errorBannerRequester)
+                        .border(1.dp, Color(0xFF7F1D1D), RoundedCornerShape(8.dp))
+                        .testTag("auth_error_banner")
+                ) {
+                    Text(
+                        text = state.error,
+                        color = Color(0xFFFCA5A5),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
 
             // Google Sign-In Button (Prominent, full-width, centered in the middle)
             OutlinedButton(

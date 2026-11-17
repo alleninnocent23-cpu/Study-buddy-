@@ -234,4 +234,49 @@ class AuthPersistenceAndApiTest {
         )
         assertEquals(com.example.data.api.FirebaseAiLogicService.VIRTUAL_KEY_ID, candidates.firstOrNull()?.id)
     }
+
+    @Test
+    fun `configureAppCheck updates diagnostic state for launch debug token presence`() {
+        val noTokenIntent = android.content.Intent()
+        com.example.data.api.configureAppCheck(app, noTokenIntent)
+        assertFalse(com.example.data.api.AppCheckDiagnostics.hasLaunchDebugToken)
+        assertTrue(com.example.data.api.AppCheckDiagnostics.statusSummary.contains("DEBUG"))
+
+        val withTokenIntent = android.content.Intent().apply {
+            putExtra("FIREBASE_APPCHECK_DEBUG_TOKEN", "00000000-0000-4000-8000-000000000001")
+        }
+        com.example.data.api.configureAppCheck(app, withTokenIntent)
+        assertTrue(com.example.data.api.AppCheckDiagnostics.hasLaunchDebugToken)
+        assertTrue(com.example.data.api.AppCheckDiagnostics.statusSummary.contains("launch debug token configured"))
+    }
+
+    @Test
+    fun `google credential error classifier surfaces SHA-1 and Play Services diagnostics instead of silent cancel`() {
+        val devConsoleCancel = androidx.credentials.exceptions.GetCredentialCancellationException(
+            "[28444] Developer console is not set up correctly."
+        )
+        val classified = FirebaseAuthRepository.classifyGoogleCredentialFailure(
+            error = devConsoleCancel,
+            primaryError = null
+        )
+        assertFalse(
+            "SHA-1 / Developer Console errors must not be treated as silent cancellation",
+            classified is androidx.credentials.exceptions.GetCredentialCancellationException
+        )
+        assertTrue(
+            "Message should guide user about Release SHA-1 registration",
+            classified.message.orEmpty().contains("SHA-1")
+        )
+
+        val fallbackCancel = androidx.credentials.exceptions.GetCredentialCancellationException("User cancelled")
+        val primaryConfigError = androidx.credentials.exceptions.NoCredentialException(
+            "Caller not allowed to call this method"
+        )
+        val fromFallback = FirebaseAuthRepository.classifyGoogleCredentialFailure(
+            error = fallbackCancel,
+            primaryError = primaryConfigError
+        )
+        assertFalse(fromFallback is androidx.credentials.exceptions.GetCredentialCancellationException)
+        assertTrue(fromFallback.message.orEmpty().contains("SHA-1"))
+    }
 }

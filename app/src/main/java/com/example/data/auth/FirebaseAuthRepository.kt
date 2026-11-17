@@ -188,14 +188,23 @@ class FirebaseAuthRepository(
                 credentialManager.getCredential(context = activity, request = primaryRequest)
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.w(tag, "User cancelled Google Sign-In picker: ${e.message}", e)
-            return Result.failure(e)
+            val detail = extractCredentialErrorText(e)
+            Log.w(tag, "Google Sign-In cancelled or dismissed: $detail", e)
+            val classified = classifyGoogleCredentialFailure(e, primaryError = null)
+            return Result.failure(classified)
         } catch (primaryError: GetCredentialException) {
+            val primaryDetail = extractCredentialErrorText(primaryError)
             Log.w(
                 tag,
-                "Primary GetSignInWithGoogleOption failed (${primaryError.type}); attempting GetGoogleIdOption fallback",
+                "Primary GetSignInWithGoogleOption failed (${primaryError.type}): $primaryDetail",
                 primaryError
             )
+            // If Play Services already reported a signing / SHA-1 / OAuth / network configuration error,
+            // do not launch a second picker that would fail again or mask the real diagnostic.
+            if (isConfigurationOrPlayServicesError(primaryDetail)) {
+                return Result.failure(classifyGoogleCredentialFailure(primaryError, primaryError = null))
+            }
+
             // Keep 1 credential option per request for Android 16 bottom-sheet responsiveness
             val fallbackGoogleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
@@ -210,22 +219,15 @@ class FirebaseAuthRepository(
                     credentialManager.getCredential(context = activity, request = fallbackRequest)
                 }
             } catch (e: GetCredentialCancellationException) {
-                Log.w(tag, "User cancelled Google ID fallback picker: ${e.message}", e)
-                return Result.failure(e)
+                val fallbackDetail = extractCredentialErrorText(e)
+                Log.w(tag, "Google ID fallback cancelled or dismissed: $fallbackDetail", e)
+                return Result.failure(classifyGoogleCredentialFailure(e, primaryError = primaryError))
             } catch (e: NoCredentialException) {
-                Log.w(tag, "No Google account available on device: ${e.message}", e)
-                return Result.failure(
-                    IllegalStateException(
-                        "No Google account is signed in on this device. Add a Google account in device Settings and try again."
-                    )
-                )
+                Log.w(tag, "No Google credential returned: ${extractCredentialErrorText(e)}", e)
+                return Result.failure(classifyGoogleCredentialFailure(e, primaryError = primaryError))
             } catch (e: GetCredentialException) {
-                Log.e(tag, "CredentialManager Google Sign-In failed (${e.type}): ${e.errorMessage ?: e.message}", e)
-                val detail = e.errorMessage?.toString()?.takeIf { it.isNotBlank() }
-                    ?: primaryError.errorMessage?.toString()?.takeIf { it.isNotBlank() }
-                    ?: e.localizedMessage
-                    ?: "Google Sign-In failed. Please check Google Play Services and try again."
-                return Result.failure(IllegalStateException(detail, e))
+                Log.e(tag, "CredentialManager Google Sign-In failed (${e.type}): ${extractCredentialErrorText(e)}", e)
+                return Result.failure(classifyGoogleCredentialFailure(e, primaryError = primaryError))
             } catch (e: Exception) {
                 Log.e(tag, "Unexpected error during Google ID fallback", e)
                 return Result.failure(
@@ -293,12 +295,9 @@ class FirebaseAuthRepository(
                 Result.success(user)
             } catch (e: Exception) {
                 Log.e(tag, "Firebase Google credential sign-in failed", e)
-                Result.failure(
-                    IllegalStateException(
-                        e.localizedMessage ?: "Failed to complete Google Sign-In with Firebase.",
-                        e
-                    )
-                )
+                val message = e.localizedMessage?.takeIf { it.isNotBlank() }
+                    ?: "Failed to complete Google Sign-In with Firebase."
+                Result.failure(IllegalStateException(message, e))
             }
         }
     }
@@ -444,8 +443,88 @@ class FirebaseAuthRepository(
             .ifBlank { "Student" }
     }
 
-    private companion object {
+    internal companion object {
         const val KEY_IS_SIGNED_IN = "is_signed_in"
         const val KEY_ACTIVE_EMAIL = "active_email"
+
+        fun extractCredentialErrorText(error: Throwable): String {
+            val credMsg = (error as? GetCredentialException)?.errorMessage?.toString()?.trim().orEmpty()
+            val rawMsg = error.localizedMessage?.trim().orEmpty().ifBlank { error.message?.trim().orEmpty() }
+            return when {
+                credMsg.isNotBlank() && rawMsg.isNotBlank() && !credMsg.equals(rawMsg, ignoreCase = true) ->
+                    "$credMsg ($rawMsg)"
+                credMsg.isNotBlank() -> credMsg
+                else -> rawMsg
+            }
+        }
+
+        fun isConfigurationOrPlayServicesError(detail: String): Boolean {
+            if (detail.isBlank()) return false
+            val lower = detail.lowercase()
+            return lower.contains("28444") ||
+                lower.contains("developer console") ||
+                lower.contains("developer_error") ||
+                lower.contains("caller not allowed") ||
+                lower.contains("reauth") ||
+                lower.contains("cannot find a matching credential") ||
+                lower.contains("sha-1") ||
+                lower.contains("sha1") ||
+                lower.contains("sha256") ||
+                lower.contains("certificate") ||
+                lower.contains("signature") ||
+                lower.contains("mismatch") ||
+                lower.contains("client_id") ||
+                lower.contains("10:") ||
+                lower.contains("16:")
+        }
+
+        fun classifyGoogleCredentialFailure(
+            error: Throwable,
+            primaryError: GetCredentialException?
+        ): Throwable {
+            val detail = extractCredentialErrorText(error)
+            val primaryDetail = primaryError?.let { extractCredentialErrorText(it) }.orEmpty()
+            val configDetail = when {
+                isConfigurationOrPlayServicesError(detail) -> detail
+                isConfigurationOrPlayServicesError(primaryDetail) -> primaryDetail
+                else -> ""
+            }
+            val combined = detail.ifBlank { primaryDetail }
+
+            if (configDetail.isNotBlank()) {
+                return IllegalStateException(
+                    "Google Sign-In failed verification ($configDetail). If this is a Release APK, register its SHA-1 and SHA-256 fingerprints in Firebase Console or sign in with email above.",
+                    error
+                )
+            }
+
+            if (error is GetCredentialCancellationException) {
+                if (primaryError != null && primaryDetail.isNotBlank()) {
+                    return IllegalStateException(
+                        "Google Sign-In could not complete: $primaryDetail",
+                        primaryError
+                    )
+                }
+                return error
+            }
+
+            if (error is NoCredentialException) {
+                if (primaryDetail.isNotBlank()) {
+                    return IllegalStateException(
+                        "Google Sign-In unavailable: $primaryDetail",
+                        error
+                    )
+                }
+                return IllegalStateException(
+                    "No Google account is available on this device, or this build's SHA-1 isn't authorized for Google Sign-In. Add a Google account in Settings or sign in with email above.",
+                    error
+                )
+            }
+
+            return IllegalStateException(
+                combined.ifBlank { "Google Sign-In failed. Please check Google Play Services and try again." },
+                error
+            )
+        }
     }
 }
