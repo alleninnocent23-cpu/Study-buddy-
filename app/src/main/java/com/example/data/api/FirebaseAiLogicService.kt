@@ -71,6 +71,20 @@ object FirebaseAiLogicService {
         return entry.id == VIRTUAL_KEY_ID || entry.key == VIRTUAL_KEY_SENTINEL
     }
 
+    @Volatile
+    private var lastDiagnosticProbeMs: Long = 0L
+
+    private fun isAppCheckFailure(error: Throwable?): Boolean {
+        return generateSequence(error) { it.cause }.any { t ->
+            val m = t.message?.lowercase().orEmpty()
+            m.contains("app check") ||
+                m.contains("appcheck") ||
+                m.contains("attestation") ||
+                m.contains("too many attempts") ||
+                m.contains("recaptcha")
+        }
+    }
+
     suspend fun execute(request: AiExecutionRequest): String {
         val configuredFirebaseKey = try {
             FirebaseApp.getInstance().options.apiKey
@@ -90,9 +104,13 @@ object FirebaseAiLogicService {
         } catch (primaryErr: Exception) {
             Log.e(
                 TAG,
-                "Firebase AI primary model ${models.primaryModel} failed, trying ${models.fallbackModel}",
+                "Firebase AI primary model ${models.primaryModel} failed: ${primaryErr.localizedMessage}",
                 primaryErr
             )
+            if (isAppCheckFailure(primaryErr)) {
+                val rawMessage = primaryErr.localizedMessage ?: "Firebase App Check attestation failed."
+                throw IOException(enrichAppCheckErrorIfNeeded(rawMessage))
+            }
             try {
                 executeSingleModel(models.fallbackModel, models.systemDirective, request)
             } catch (e: CancellationException) {
@@ -111,13 +129,29 @@ object FirebaseAiLogicService {
 
     private suspend fun enrichAppCheckErrorIfNeeded(rawMessage: String): String {
         val lower = rawMessage.lowercase()
-        if (!lower.contains("app check") && !lower.contains("attestation")) {
+        if (!lower.contains("app check") &&
+            !lower.contains("appcheck") &&
+            !lower.contains("attestation") &&
+            !lower.contains("too many attempts") &&
+            !lower.contains("recaptcha")
+        ) {
             return rawMessage
         }
 
         if (BuildConfig.DEBUG && !AppCheckDiagnostics.hasLaunchDebugToken) {
             return "Debug APK App Check is not authorized on standalone devices. Install StudyBuddy-release.apk (not StudyBuddy-debug.apk)."
         }
+
+        val status = AppCheckDiagnostics.statusSummary
+        if (lower.contains("too many attempts")) {
+            return "App Check ($status) is temporarily rate-limited (Too many attempts). Wait a couple minutes before retrying, and ensure reCAPTCHA Enterprise is registered for com.aistudio.studybuddy.xkjqmw in Firebase Console → App Check."
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastDiagnosticProbeMs < 30_000L) {
+            return "$rawMessage [$status]"
+        }
+        lastDiagnosticProbeMs = now
 
         val tokenError = try {
             withTimeout(8_000L) {
@@ -137,9 +171,12 @@ object FirebaseAiLogicService {
             t.localizedMessage ?: t.javaClass.simpleName
         }
 
-        val status = AppCheckDiagnostics.statusSummary
         return if (!tokenError.isNullOrBlank()) {
-            "App Check ($status) failed: $tokenError"
+            if (tokenError.contains("too many attempts", ignoreCase = true)) {
+                "App Check ($status) is temporarily rate-limited (Too many attempts). Wait a couple minutes before retrying, and verify reCAPTCHA Enterprise for com.aistudio.studybuddy.xkjqmw in Firebase Console → App Check."
+            } else {
+                "App Check ($status) failed: $tokenError"
+            }
         } else {
             "$rawMessage [$status]"
         }

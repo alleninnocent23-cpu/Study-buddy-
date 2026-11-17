@@ -69,7 +69,16 @@ object RequestRetryService {
                 }
             }
             lower.contains("resource_exhausted") || lower.contains("quota") -> RetryableErrorKind.QUOTA_EXHAUSTED
-            effectiveCode == 401 || effectiveCode == 403 || lower.contains("api_key_invalid") || lower.contains("api key not valid") || lower.contains("unauthorized") ->
+            effectiveCode == 401 ||
+                effectiveCode == 403 ||
+                lower.contains("app check") ||
+                lower.contains("appcheck") ||
+                lower.contains("attestation") ||
+                lower.contains("too many attempts") ||
+                lower.contains("recaptcha") ||
+                lower.contains("api_key_invalid") ||
+                lower.contains("api key not valid") ||
+                lower.contains("unauthorized") ->
                 RetryableErrorKind.INVALID_KEY_401_403
             effectiveCode in listOf(408, 500, 502, 503, 504) ||
                 lower.contains("500") || lower.contains("502") || lower.contains("503") || lower.contains("504") ||

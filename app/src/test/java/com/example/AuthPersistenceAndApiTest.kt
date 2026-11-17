@@ -140,6 +140,14 @@ class AuthPersistenceAndApiTest {
         assertTrue(classification.safeMessage.contains("App Check"))
         assertFalse(classification.safeMessage.contains("Configured key rejected"))
 
+        val appCheckRateLimit = RequestRetryService.classifyFailure(
+            httpCode = null,
+            error = java.io.IOException("App Check (RELEASE (reCAPTCHA Enterprise installed)) failed: Too many attempts."),
+            isFirebaseAppCheckRoute = true
+        )
+        assertEquals(RetryableErrorKind.INVALID_KEY_401_403, appCheckRateLimit.kind)
+        assertTrue(appCheckRateLimit.safeMessage.contains("App Check"))
+
         val invalidKeyClassification = RequestRetryService.classifyFailure(
             httpCode = 400,
             error = RuntimeException("API key not valid. Please pass a valid API key.")
