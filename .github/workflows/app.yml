@@ -124,16 +124,20 @@ jobs:
         shell: bash
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML }}
           BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
         run: |
           set -e
-          mkdir -p app
+          mkdir -p app app/src/main/res/values
           if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
             printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
           elif [ ! -s "app/google-services.json" ]; then
             echo "ERROR: app/google-services.json is missing from the repository and secrets.GOOGLE_SERVICES_JSON is not set."
-            echo "Push app/google-services.json and app/src/main/res/values/firebase_applet_config.xml from AI Studio to GitHub."
+            echo "Push app/google-services.json and app/src/main/res/values/firebase_applet_config.xml from AI Studio to GitHub, or set GOOGLE_SERVICES_JSON (and FIREBASE_APPLET_CONFIG_XML if missing) in GitHub Secrets."
             exit 1
+          fi
+          if [ -n "$FIREBASE_APPLET_CONFIG_XML" ]; then
+            printf '%s\n' "$FIREBASE_APPLET_CONFIG_XML" > app/src/main/res/values/firebase_applet_config.xml
           fi
 
           python3 - << 'PY'
@@ -313,6 +317,7 @@ jobs:
         shell: bash
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML }}
         run: |
           set -e
           if [ -s "debug.keystore.base64" ]; then
@@ -329,9 +334,12 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-          mkdir -p app
+          mkdir -p app app/src/main/res/values
           if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
             printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+          if [ -n "$FIREBASE_APPLET_CONFIG_XML" ]; then
+            printf '%s\n' "$FIREBASE_APPLET_CONFIG_XML" > app/src/main/res/values/firebase_applet_config.xml
           fi
           if [ ! -f ".env" ]; then
             if [ -f ".env.example" ]; then
