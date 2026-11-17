@@ -43,7 +43,7 @@ object RequestRetryService {
         // Strip accidental ?key=... query parameter values
         msg = msg.replace(Regex("([?&]key=)[^&\\s]+", RegexOption.IGNORE_CASE), "$1***")
         msg = msg.replace(Regex("(Bearer\\s+)[A-Za-z0-9._-]+", RegexOption.IGNORE_CASE), "$1***")
-        return msg.take(220)
+        return msg.take(360)
     }
 
     fun classifyFailure(

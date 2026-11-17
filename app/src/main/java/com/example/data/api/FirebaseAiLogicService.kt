@@ -85,6 +85,70 @@ object FirebaseAiLogicService {
         }
     }
 
+    private fun formatExceptionSummary(error: Throwable): String {
+        val type = error.javaClass.simpleName.ifBlank { "Exception" }
+        val primary = error.localizedMessage?.trim().orEmpty()
+        val causeMsg = error.cause?.localizedMessage?.trim()?.takeIf {
+            it.isNotBlank() && !primary.contains(it, ignoreCase = true)
+        }
+        return buildString {
+            if (primary.isNotBlank()) {
+                append(primary)
+            } else {
+                append(type)
+            }
+            if (causeMsg != null) {
+                append(" (cause: ").append(causeMsg).append(")")
+            }
+        }.take(200)
+    }
+
+    internal fun formatAppCheckFailureMessage(tokenError: String): String {
+        val status = AppCheckDiagnostics.statusSummary
+        val priorRootCause = AppCheckDiagnostics.lastUnderlyingTokenError
+        if (tokenError.contains("too many attempts", ignoreCase = true)) {
+            return if (!priorRootCause.isNullOrBlank()) {
+                "App Check ($status) is cooling down after: $priorRootCause. Turn off any VPN or Private DNS, wait 2 minutes, and retry."
+            } else {
+                "App Check ($status) is temporarily rate-limited (Too many attempts). Turn off any VPN, Private DNS, or ad-blocker if active, wait 2-5 minutes, and retry."
+            }
+        }
+        return "App Check ($status) failed: $tokenError. Disable any VPN or Private DNS if active, check your connection, and retry."
+    }
+
+    private suspend fun ensureAppCheckTokenReady() {
+        val tokenError = try {
+            withTimeout(10_000L) {
+                suspendCancellableCoroutine<String?> { cont ->
+                    FirebaseAppCheck.getInstance().getAppCheckToken(false)
+                        .addOnSuccessListener {
+                            AppCheckDiagnostics.clearTokenFailure()
+                            if (cont.isActive) cont.resume(null)
+                        }
+                        .addOnFailureListener { ex ->
+                            if (cont.isActive) cont.resume(formatExceptionSummary(ex))
+                        }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: TimeoutCancellationException) {
+            "App Check token request timed out."
+        } catch (t: Throwable) {
+            formatExceptionSummary(t)
+        }
+
+        if (!tokenError.isNullOrBlank()) {
+            AppCheckDiagnostics.recordTokenFailure(tokenError)
+            if (BuildConfig.DEBUG && !AppCheckDiagnostics.hasLaunchDebugToken) {
+                throw IOException(
+                    "Debug APK App Check is not authorized on standalone devices. Install StudyBuddy-release.apk (not StudyBuddy-debug.apk)."
+                )
+            }
+            throw IOException(formatAppCheckFailureMessage(tokenError))
+        }
+    }
+
     suspend fun execute(request: AiExecutionRequest): String {
         val configuredFirebaseKey = try {
             FirebaseApp.getInstance().options.apiKey
@@ -96,6 +160,7 @@ object FirebaseAiLogicService {
                 "This APK was built with a placeholder Firebase config instead of the provisioned app/google-services.json."
             )
         }
+        ensureAppCheckTokenReady()
         val models = resolveFirebaseModels(request.tier)
         return try {
             executeSingleModel(models.primaryModel, models.systemDirective, request)
@@ -144,12 +209,13 @@ object FirebaseAiLogicService {
 
         val status = AppCheckDiagnostics.statusSummary
         if (lower.contains("too many attempts")) {
-            return "App Check ($status) is temporarily rate-limited (Too many attempts). Wait a couple minutes before retrying, and ensure reCAPTCHA Enterprise is registered for com.aistudio.studybuddy.xkjqmw in Firebase Console → App Check."
+            return formatAppCheckFailureMessage(rawMessage)
         }
 
         val now = System.currentTimeMillis()
         if (now - lastDiagnosticProbeMs < 30_000L) {
-            return "$rawMessage [$status]"
+            val prior = AppCheckDiagnostics.lastUnderlyingTokenError
+            return if (!prior.isNullOrBlank()) "$rawMessage [$status: $prior]" else "$rawMessage [$status]"
         }
         lastDiagnosticProbeMs = now
 
@@ -161,22 +227,19 @@ object FirebaseAiLogicService {
                             if (cont.isActive) cont.resume(null)
                         }
                         .addOnFailureListener { ex ->
-                            if (cont.isActive) cont.resume(ex.localizedMessage ?: ex.javaClass.simpleName)
+                            if (cont.isActive) cont.resume(formatExceptionSummary(ex))
                         }
                 }
             }
         } catch (t: TimeoutCancellationException) {
             "App Check token request timed out."
         } catch (t: Throwable) {
-            t.localizedMessage ?: t.javaClass.simpleName
+            formatExceptionSummary(t)
         }
 
         return if (!tokenError.isNullOrBlank()) {
-            if (tokenError.contains("too many attempts", ignoreCase = true)) {
-                "App Check ($status) is temporarily rate-limited (Too many attempts). Wait a couple minutes before retrying, and verify reCAPTCHA Enterprise for com.aistudio.studybuddy.xkjqmw in Firebase Console → App Check."
-            } else {
-                "App Check ($status) failed: $tokenError"
-            }
+            AppCheckDiagnostics.recordTokenFailure(tokenError)
+            formatAppCheckFailureMessage(tokenError)
         } else {
             "$rawMessage [$status]"
         }

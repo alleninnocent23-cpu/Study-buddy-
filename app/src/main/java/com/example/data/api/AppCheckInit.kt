@@ -29,6 +29,21 @@ object AppCheckDiagnostics {
     @Volatile
     var hasLaunchDebugToken: Boolean = false
         internal set
+
+    @Volatile
+    var lastUnderlyingTokenError: String? = null
+        internal set
+
+    fun recordTokenFailure(rawError: String?) {
+        val cleaned = rawError?.trim().orEmpty()
+        if (cleaned.isNotBlank() && !cleaned.contains("too many attempts", ignoreCase = true)) {
+            lastUnderlyingTokenError = cleaned.take(180)
+        }
+    }
+
+    fun clearTokenFailure() {
+        lastUnderlyingTokenError = null
+    }
 }
 
 fun configureAppCheck(context: Context, intent: Intent?) {

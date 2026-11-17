@@ -710,9 +710,18 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             }.onFailure { err ->
                 val rawErrMsg = err.message?.takeIf { it.isNotBlank() }
                     ?: "Unable to reach StudyBuddy AI right now."
+                val hasGuidance = rawErrMsg.contains("retry", ignoreCase = true) ||
+                    rawErrMsg.contains("try again", ignoreCase = true) ||
+                    rawErrMsg.contains("vpn", ignoreCase = true) ||
+                    rawErrMsg.contains("install", ignoreCase = true)
+                val formattedBubbleText = if (hasGuidance) {
+                    "I couldn't generate an answer right now: $rawErrMsg"
+                } else {
+                    "I couldn't generate an answer right now: $rawErrMsg\n\nPlease check your internet connection or try again in a moment."
+                }
                 val assistantErrorMsg = ChatMessage(
                     sender = MessageSender.ASSISTANT,
-                    text = "I couldn't generate an answer right now: $rawErrMsg\n\nPlease check your internet connection or try again in a moment."
+                    text = formattedBubbleText
                 )
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,

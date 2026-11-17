@@ -259,6 +259,30 @@ class AuthPersistenceAndApiTest {
     }
 
     @Test
+    fun `app check diagnostics preserves underlying error across rate-limit retries and avoids truncation`() {
+        com.example.data.api.AppCheckDiagnostics.clearTokenFailure()
+        com.example.data.api.AppCheckDiagnostics.recordTokenFailure("RecaptchaException: Network connection error")
+        com.example.data.api.AppCheckDiagnostics.recordTokenFailure("Too many attempts.")
+        assertEquals(
+            "RecaptchaException: Network connection error",
+            com.example.data.api.AppCheckDiagnostics.lastUnderlyingTokenError
+        )
+
+        val cooldownMsg = com.example.data.api.FirebaseAiLogicService.formatAppCheckFailureMessage("Too many attempts.")
+        assertTrue(cooldownMsg.contains("RecaptchaException: Network connection error"))
+        assertTrue(cooldownMsg.contains("VPN"))
+        assertFalse(cooldownMsg.contains("Firebase Console"))
+
+        val sanitized = RequestRetryService.classifyFailure(
+            httpCode = null,
+            error = java.io.IOException(cooldownMsg),
+            isFirebaseAppCheckRoute = true
+        )
+        assertEquals(cooldownMsg, sanitized.safeMessage)
+        com.example.data.api.AppCheckDiagnostics.clearTokenFailure()
+    }
+
+    @Test
     fun `google credential error classifier surfaces SHA-1 and Play Services diagnostics instead of silent cancel`() {
         val devConsoleCancel = androidx.credentials.exceptions.GetCredentialCancellationException(
             "[28444] Developer console is not set up correctly."
