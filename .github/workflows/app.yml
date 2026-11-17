@@ -123,21 +123,33 @@ jobs:
       - name: Configure Google Services & Env
         shell: bash
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON || vars.GOOGLE_SERVICES_JSON }}
+          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML || vars.FIREBASE_APPLET_CONFIG_XML }}
           BUILD_TYPE: ${{ github.event.inputs.build_type || 'both' }}
         run: |
           set -e
           mkdir -p app app/src/main/res/values
-          if [ -n "$GOOGLE_SERVICES_JSON" ] && ! printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
-            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            if printf '%s' "$GOOGLE_SERVICES_JSON" | grep -qE 'ci-build-placeholder|dummy_key_for_ci_build|remixed-project-id'; then
+              if [ ! -s "app/google-services.json" ]; then
+                echo "ERROR: secrets.GOOGLE_SERVICES_JSON is set, but it contains a placeholder value (ci-build-placeholder / dummy_key_for_ci_build / remixed-project-id)."
+                echo "Replace GOOGLE_SERVICES_JSON in GitHub Repository Secrets with the real app/google-services.json."
+                exit 1
+              else
+                echo "WARNING: Ignoring placeholder GOOGLE_SERVICES_JSON secret and using committed app/google-services.json."
+              fi
+            else
+              printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+              echo "Loaded app/google-services.json from GitHub Secret/Variable."
+            fi
           elif [ ! -s "app/google-services.json" ]; then
-            echo "ERROR: app/google-services.json is missing from the repository and secrets.GOOGLE_SERVICES_JSON is not set."
-            echo "Push app/google-services.json and app/src/main/res/values/firebase_applet_config.xml from AI Studio to GitHub, or set GOOGLE_SERVICES_JSON (and FIREBASE_APPLET_CONFIG_XML if missing) in GitHub Secrets."
+            echo "ERROR: app/google-services.json is missing from the repository and Repository Secret GOOGLE_SERVICES_JSON is empty."
+            echo "In GitHub, open Settings -> Secrets and variables -> Actions -> Repository secrets -> New repository secret -> Name: GOOGLE_SERVICES_JSON."
             exit 1
           fi
           if [ -n "$FIREBASE_APPLET_CONFIG_XML" ]; then
             printf '%s\n' "$FIREBASE_APPLET_CONFIG_XML" > app/src/main/res/values/firebase_applet_config.xml
+            echo "Loaded firebase_applet_config.xml from GitHub Secret/Variable."
           fi
 
           python3 - << 'PY'
@@ -316,8 +328,8 @@ jobs:
       - name: Prepare Environment & Wrapper
         shell: bash
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON || vars.GOOGLE_SERVICES_JSON }}
+          FIREBASE_APPLET_CONFIG_XML: ${{ secrets.FIREBASE_APPLET_CONFIG_XML || vars.FIREBASE_APPLET_CONFIG_XML }}
         run: |
           set -e
           if [ -s "debug.keystore.base64" ]; then
