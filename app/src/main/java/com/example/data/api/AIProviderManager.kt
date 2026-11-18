@@ -57,19 +57,90 @@ object AIProviderManager {
             capability = request.capability
         )
 
-        return try {
-            executeSingleModel(keyEntry, resolved, resolved.modelId, request)
-        } catch (e: ProviderHttpException) {
-            val fallbackModel = resolved.fallbackModelId
-            // If primary tier model (e.g. gemini-2.5-pro) is unavailable/rate-limited (404/429),
-            // attempt the tier's intra-provider fallback model cleanly once before rotating keys.
-            if (fallbackModel != null && (e.httpCode == 404 || e.httpCode == 429 || e.httpCode == 503)) {
-                Log.w(TAG, "Primary model ${resolved.modelId} returned HTTP ${e.httpCode}; trying fallback $fallbackModel")
-                executeSingleModel(keyEntry, resolved, fallbackModel, request)
-            } else {
-                throw e
+        val candidates = buildModelCandidateList(keyEntry.provider, resolved)
+        var lastErr: ProviderHttpException? = null
+        for (modelId in candidates) {
+            try {
+                return executeSingleModel(keyEntry, resolved, modelId, request)
+            } catch (e: ProviderHttpException) {
+                lastErr = e
+                val retryableModelErr = e.httpCode == 404 || e.httpCode == 429 || e.httpCode == 503
+                if (!retryableModelErr || modelId == candidates.last()) {
+                    throw e
+                }
+                Log.w(TAG, "${keyEntry.provider.name} model $modelId returned HTTP ${e.httpCode}; trying next model")
             }
         }
+        throw lastErr ?: IOException("No available models for ${keyEntry.provider.displayName}.")
+    }
+
+    suspend fun executeStreamWithKey(
+        keyEntry: ApiKeyEntry,
+        request: AiExecutionRequest,
+        onPartialText: (String) -> Unit
+    ): String {
+        if (FirebaseAiLogicService.isVirtualKey(keyEntry)) {
+            val full = FirebaseAiLogicService.execute(request)
+            onPartialText(full)
+            return full
+        }
+
+        val resolved = ModelSelectionService.resolveForProvider(
+            tier = request.tier,
+            provider = keyEntry.provider,
+            capability = request.capability
+        )
+        val candidates = buildModelCandidateList(keyEntry.provider, resolved)
+        var lastErr: ProviderHttpException? = null
+        for (modelId in candidates) {
+            var emittedAny = false
+            try {
+                return when (keyEntry.provider) {
+                    AiProviderType.GEMINI -> executeGeminiStream(
+                        apiKey = keyEntry.key,
+                        config = resolved,
+                        modelId = modelId,
+                        req = request,
+                        onPartialText = { partial ->
+                            emittedAny = true
+                            onPartialText(partial)
+                        }
+                    )
+                    AiProviderType.GROQ,
+                    AiProviderType.OPENROUTER,
+                    AiProviderType.CUSTOM_OPENAI -> executeOpenAiCompatibleStream(
+                        keyEntry = keyEntry,
+                        config = resolved,
+                        modelId = modelId,
+                        req = request,
+                        onPartialText = { partial ->
+                            emittedAny = true
+                            onPartialText(partial)
+                        }
+                    )
+                }
+            } catch (e: ProviderHttpException) {
+                lastErr = e
+                val retryableModelErr = !emittedAny && (e.httpCode == 404 || e.httpCode == 429 || e.httpCode == 503)
+                if (!retryableModelErr || modelId == candidates.last()) {
+                    throw e
+                }
+                Log.w(TAG, "${keyEntry.provider.name} stream $modelId returned HTTP ${e.httpCode}; trying next model")
+            }
+        }
+        throw lastErr ?: IOException("Streaming failed for ${keyEntry.provider.displayName}.")
+    }
+
+    private fun buildModelCandidateList(
+        provider: AiProviderType,
+        config: ResolvedModelConfig
+    ): List<String> {
+        val extras = when (provider) {
+            AiProviderType.GEMINI -> listOf("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash")
+            AiProviderType.GROQ -> listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+            else -> emptyList()
+        }
+        return (listOfNotNull(config.modelId, config.fallbackModelId) + extras).distinct()
     }
 
     private fun executeSingleModel(
@@ -86,12 +157,11 @@ object AIProviderManager {
         }
     }
 
-    private fun executeGemini(
-        apiKey: String,
+    private fun buildGeminiRequestBody(
         config: ResolvedModelConfig,
         modelId: String,
         req: AiExecutionRequest
-    ): String {
+    ): JSONObject {
         val fullSystemInstruction = buildString {
             if (req.systemInstruction.isNotBlank()) {
                 append(req.systemInstruction.trim())
@@ -100,7 +170,7 @@ object AIProviderManager {
             append(config.systemPromptDirective)
         }.trim()
 
-        val bodyJson = JSONObject().apply {
+        return JSONObject().apply {
             if (fullSystemInstruction.isNotBlank()) {
                 put("systemInstruction", JSONObject().apply {
                     put("parts", JSONArray().apply {
@@ -161,7 +231,32 @@ object AIProviderManager {
                 }
             })
         }
+    }
 
+    private fun extractGeminiText(bodyString: String): String {
+        val jsonResponse = JSONObject(bodyString)
+        val candidates = jsonResponse.getJSONArray("candidates")
+        val parts = candidates.getJSONObject(0)
+            .optJSONObject("content")
+            ?.optJSONArray("parts")
+            ?: return ""
+        val textBuilder = StringBuilder()
+        for (i in 0 until parts.length()) {
+            val part = parts.getJSONObject(i)
+            if (!part.optBoolean("thought", false) && part.has("text")) {
+                textBuilder.append(part.getString("text"))
+            }
+        }
+        return textBuilder.toString()
+    }
+
+    private fun executeGemini(
+        apiKey: String,
+        config: ResolvedModelConfig,
+        modelId: String,
+        req: AiExecutionRequest
+    ): String {
+        val bodyJson = buildGeminiRequestBody(config, modelId, req)
         val endpoint = "${AiProviderType.GEMINI.defaultBaseUrl}$modelId:generateContent"
         val httpRequest = Request.Builder()
             .url(endpoint)
@@ -177,19 +272,7 @@ object AIProviderManager {
                 throw ProviderHttpException(response.code, retryAfter, "HTTP ${response.code}: $errorMsg")
             }
 
-            val jsonResponse = JSONObject(bodyString)
-            val candidates = jsonResponse.getJSONArray("candidates")
-            val parts = candidates.getJSONObject(0)
-                .getJSONObject("content")
-                .getJSONArray("parts")
-            val textBuilder = StringBuilder()
-            for (i in 0 until parts.length()) {
-                val part = parts.getJSONObject(i)
-                if (!part.optBoolean("thought", false) && part.has("text")) {
-                    textBuilder.append(part.getString("text"))
-                }
-            }
-            val extracted = textBuilder.toString().trim()
+            val extracted = extractGeminiText(bodyString).trim()
             if (extracted.isBlank()) {
                 throw IOException("Empty response received from Gemini.")
             }
@@ -197,12 +280,63 @@ object AIProviderManager {
         }
     }
 
-    private fun executeOpenAiCompatible(
+    private fun executeGeminiStream(
+        apiKey: String,
+        config: ResolvedModelConfig,
+        modelId: String,
+        req: AiExecutionRequest,
+        onPartialText: (String) -> Unit
+    ): String {
+        val bodyJson = buildGeminiRequestBody(config, modelId, req)
+        val endpoint = "${AiProviderType.GEMINI.defaultBaseUrl}$modelId:streamGenerateContent?alt=sse"
+        val httpRequest = Request.Builder()
+            .url(endpoint)
+            .addHeader("x-goog-api-key", apiKey)
+            .addHeader("Accept", "text/event-stream")
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        httpClient.newCall(httpRequest).execute().use { response ->
+            if (!response.isSuccessful) {
+                val bodyString = response.body?.string().orEmpty()
+                val errorMsg = parseErrorMessage(bodyString, response.code, response.message)
+                val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                throw ProviderHttpException(response.code, retryAfter, "HTTP ${response.code}: $errorMsg")
+            }
+
+            val source = response.body?.source() ?: throw IOException("Empty Gemini stream body.")
+            val accumulated = StringBuilder()
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                if (line.startsWith("data:")) {
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isBlank() || data == "[DONE]") continue
+                    try {
+                        val delta = extractGeminiText(data)
+                        if (delta.isNotEmpty()) {
+                            accumulated.append(delta)
+                            onPartialText(accumulated.toString())
+                        }
+                    } catch (_: Exception) {
+                        // Ignore non-text control frames cleanly
+                    }
+                }
+            }
+            val finalText = accumulated.toString().trim()
+            if (finalText.isBlank()) {
+                throw IOException("Empty streaming response received from Gemini.")
+            }
+            return finalText
+        }
+    }
+
+    private fun buildOpenAiRequestBody(
         keyEntry: ApiKeyEntry,
         config: ResolvedModelConfig,
         modelId: String,
-        req: AiExecutionRequest
-    ): String {
+        req: AiExecutionRequest,
+        stream: Boolean
+    ): JSONObject {
         val fullSystemInstruction = buildString {
             if (req.systemInstruction.isNotBlank()) {
                 append(req.systemInstruction.trim())
@@ -251,12 +385,28 @@ object AIProviderManager {
             }
         }
 
-        val reqJson = JSONObject().apply {
+        return JSONObject().apply {
             put("model", modelId)
             put("messages", messages)
             put("temperature", config.temperature)
-            put("max_tokens", config.maxOutputTokens)
+            if (keyEntry.provider == AiProviderType.GROQ) {
+                put("max_completion_tokens", config.maxOutputTokens)
+            } else {
+                put("max_tokens", config.maxOutputTokens)
+            }
+            if (stream) {
+                put("stream", true)
+            }
         }
+    }
+
+    private fun executeOpenAiCompatible(
+        keyEntry: ApiKeyEntry,
+        config: ResolvedModelConfig,
+        modelId: String,
+        req: AiExecutionRequest
+    ): String {
+        val reqJson = buildOpenAiRequestBody(keyEntry, config, modelId, req, stream = false)
 
         val builder = Request.Builder()
             .url(keyEntry.provider.defaultBaseUrl)
@@ -285,6 +435,65 @@ object AIProviderManager {
                 throw IOException("Empty response received from ${keyEntry.provider.displayName}.")
             }
             return content
+        }
+    }
+
+    private fun executeOpenAiCompatibleStream(
+        keyEntry: ApiKeyEntry,
+        config: ResolvedModelConfig,
+        modelId: String,
+        req: AiExecutionRequest,
+        onPartialText: (String) -> Unit
+    ): String {
+        val reqJson = buildOpenAiRequestBody(keyEntry, config, modelId, req, stream = true)
+
+        val builder = Request.Builder()
+            .url(keyEntry.provider.defaultBaseUrl)
+            .addHeader("Authorization", "Bearer ${keyEntry.key}")
+            .addHeader("Accept", "text/event-stream")
+            .post(reqJson.toString().toRequestBody("application/json".toMediaType()))
+
+        if (keyEntry.provider == AiProviderType.OPENROUTER) {
+            builder.addHeader("X-Title", "StudyBuddy Android")
+        }
+
+        httpClient.newCall(builder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val bodyString = response.body?.string().orEmpty()
+                val errorMsg = parseErrorMessage(bodyString, response.code, response.message)
+                val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                throw ProviderHttpException(response.code, retryAfter, "HTTP ${response.code}: $errorMsg")
+            }
+
+            val source = response.body?.source() ?: throw IOException("Empty ${keyEntry.provider.displayName} stream body.")
+            val accumulated = StringBuilder()
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                if (line.startsWith("data:")) {
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isBlank()) continue
+                    if (data == "[DONE]") break
+                    try {
+                        val obj = JSONObject(data)
+                        val choices = obj.optJSONArray("choices")
+                        if (choices != null && choices.length() > 0) {
+                            val delta = choices.getJSONObject(0).optJSONObject("delta")
+                            val chunkText = delta?.optString("content", "").orEmpty()
+                            if (chunkText.isNotEmpty()) {
+                                accumulated.append(chunkText)
+                                onPartialText(accumulated.toString())
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Ignore malformed keep-alive or metadata chunks
+                    }
+                }
+            }
+            val finalText = accumulated.toString().trim()
+            if (finalText.isBlank()) {
+                throw IOException("Empty streaming response received from ${keyEntry.provider.displayName}.")
+            }
+            return finalText
         }
     }
 

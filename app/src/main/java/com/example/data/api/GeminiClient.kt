@@ -171,18 +171,11 @@ object GeminiClient {
         }
     }
 
-    suspend fun explainTopic(
+    private fun buildExplainTopicPrompts(
         topic: String,
         subject: String,
-        gradeLevel: String,
-        conversationHistory: List<Pair<String, String>> = emptyList(),
-        modelTier: StudyBuddyModelTier = activeModelTier
-    ): Result<ExplanationResult> = withContext(Dispatchers.IO) {
-        val directReply = getDirectConversationalResponse(topic)
-        if (directReply != null) {
-            return@withContext Result.success(ExplanationResult(directReply, "none", "none"))
-        }
-
+        gradeLevel: String
+    ): Pair<String, String> {
         val fieldDirective = getFieldPersonalizationDirective(subject)
 
         val systemInstructionText = """
@@ -243,6 +236,61 @@ object GeminiClient {
             Respond directly as StudyBuddy following the Core Principle and guidelines above.
         """.trimIndent()
 
+        return systemInstructionText to prompt
+    }
+
+    private fun parseExplanationResult(topic: String, rawText: String): ExplanationResult {
+        val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
+        val match = diagramRegex.find(rawText)
+        var diagramType = "none"
+        var diagramTitle = ""
+        var cleanText = rawText
+
+        if (match != null) {
+            diagramType = match.groupValues[1].lowercase()
+            diagramTitle = match.groupValues[2].trim()
+            cleanText = rawText.replace(match.value, "").trim()
+        } else {
+            val lower = topic.lowercase()
+            if (lower.contains("parabola") || lower.contains("quadratic") || lower.contains("graph") || lower.contains("sine")) {
+                diagramType = "cartesian_graph"
+                diagramTitle = "Function Graph"
+            } else if (lower.contains("triangle") || lower.contains("pythagor") || lower.contains("hypotenuse")) {
+                diagramType = "geometry_triangle"
+                diagramTitle = "Geometric Right Triangle"
+            } else if (lower.contains("circle") || lower.contains("radius") || lower.contains("diameter") || lower.contains("pi")) {
+                diagramType = "geometry_circle"
+                diagramTitle = "Circle & Radius"
+            } else if (lower.contains("force") || lower.contains("gravity") || lower.contains("newton") || lower.contains("friction")) {
+                diagramType = "physics_vector"
+                diagramTitle = "Free Body Force Vectors"
+            } else if (lower.contains("atom") || lower.contains("electron") || lower.contains("proton") || lower.contains("chemical")) {
+                diagramType = "chemistry_atom"
+                diagramTitle = "Atomic Shell Structure"
+            } else if (lower.contains("cell") || lower.contains("biology") || lower.contains("dna") || lower.contains("mitochondria")) {
+                diagramType = "cell_biology"
+                diagramTitle = "Cellular Biology Diagram"
+            }
+        }
+
+        cleanText = cleanAcademicText(cleanText)
+        return ExplanationResult(cleanText, diagramType, diagramTitle)
+    }
+
+    suspend fun explainTopic(
+        topic: String,
+        subject: String,
+        gradeLevel: String,
+        conversationHistory: List<Pair<String, String>> = emptyList(),
+        modelTier: StudyBuddyModelTier = activeModelTier
+    ): Result<ExplanationResult> = withContext(Dispatchers.IO) {
+        val directReply = getDirectConversationalResponse(topic)
+        if (directReply != null) {
+            return@withContext Result.success(ExplanationResult(directReply, "none", "none"))
+        }
+
+        val (systemInstructionText, prompt) = buildExplainTopicPrompts(topic, subject, gradeLevel)
+
         AiApiManager.executeWithFailover(
             operationName = "explainTopic",
             tier = modelTier,
@@ -267,46 +315,71 @@ object GeminiClient {
                         tier = modelTier
                     )
                 )
-
-                val diagramRegex = Regex("\\[DIAGRAM:([a-z_]+):([^\\]]+)\\]", RegexOption.IGNORE_CASE)
-                val match = diagramRegex.find(rawText)
-                var diagramType = "none"
-                var diagramTitle = ""
-                var cleanText = rawText
-
-                if (match != null) {
-                    diagramType = match.groupValues[1].lowercase()
-                    diagramTitle = match.groupValues[2].trim()
-                    cleanText = rawText.replace(match.value, "").trim()
-                } else {
-                    val lower = topic.lowercase()
-                    if (lower.contains("parabola") || lower.contains("quadratic") || lower.contains("graph") || lower.contains("sine")) {
-                        diagramType = "cartesian_graph"
-                        diagramTitle = "Function Graph"
-                    } else if (lower.contains("triangle") || lower.contains("pythagor") || lower.contains("hypotenuse")) {
-                        diagramType = "geometry_triangle"
-                        diagramTitle = "Geometric Right Triangle"
-                    } else if (lower.contains("circle") || lower.contains("radius") || lower.contains("diameter") || lower.contains("pi")) {
-                        diagramType = "geometry_circle"
-                        diagramTitle = "Circle & Radius"
-                    } else if (lower.contains("force") || lower.contains("gravity") || lower.contains("newton") || lower.contains("friction")) {
-                        diagramType = "physics_vector"
-                        diagramTitle = "Free Body Force Vectors"
-                    } else if (lower.contains("atom") || lower.contains("electron") || lower.contains("proton") || lower.contains("chemical")) {
-                        diagramType = "chemistry_atom"
-                        diagramTitle = "Atomic Shell Structure"
-                    } else if (lower.contains("cell") || lower.contains("biology") || lower.contains("dna") || lower.contains("mitochondria")) {
-                        diagramType = "cell_biology"
-                        diagramTitle = "Cellular Biology Diagram"
-                    }
-                }
-
-                cleanText = cleanAcademicText(cleanText)
-                Result.success(ExplanationResult(cleanText, diagramType, diagramTitle))
+                Result.success(parseExplanationResult(topic, rawText))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed in explainTopic attempt with key ${keyEntry.label}")
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun explainTopicStreaming(
+        topic: String,
+        subject: String,
+        gradeLevel: String,
+        conversationHistory: List<Pair<String, String>> = emptyList(),
+        modelTier: StudyBuddyModelTier = activeModelTier,
+        onPartialText: (String) -> Unit
+    ): Result<ExplanationResult> = withContext(Dispatchers.IO) {
+        val directReply = getDirectConversationalResponse(topic)
+        if (directReply != null) {
+            onPartialText(directReply)
+            return@withContext Result.success(ExplanationResult(directReply, "none", "none"))
+        }
+
+        val (systemInstructionText, prompt) = buildExplainTopicPrompts(topic, subject, gradeLevel)
+        val incompleteDiagramSuffixRegex = Regex("\\[DIAGRAM:[^\\]]*$", RegexOption.IGNORE_CASE)
+
+        AiApiManager.executeWithFailover(
+            operationName = "explainTopicStreaming",
+            tier = modelTier,
+            capability = AiTaskCapability.TEXT_CHAT
+        ) { keyEntry ->
+            val effectiveKey = if (keyEntry.key.isNotBlank()) keyEntry.key else getEffectiveApiKey()
+            if (effectiveKey.isBlank()) {
+                return@executeWithFailover Result.failure(
+                    IllegalStateException("AI service credentials are not configured.")
+                )
+            }
+
+            try {
+                val resolvedEntry = if (keyEntry.key.isNotBlank()) keyEntry else keyEntry.copy(key = effectiveKey)
+                val rawText = AIProviderManager.executeStreamWithKey(
+                    keyEntry = resolvedEntry,
+                    request = AiExecutionRequest(
+                        prompt = prompt,
+                        systemInstruction = systemInstructionText,
+                        conversationHistory = conversationHistory,
+                        capability = AiTaskCapability.TEXT_CHAT,
+                        tier = modelTier
+                    ),
+                    onPartialText = { partialRaw ->
+                        val withoutPendingTag = partialRaw
+                            .replace(Regex("\\[DIAGRAM:[a-z_]+:[^\\]]+\\]", RegexOption.IGNORE_CASE), "")
+                            .replace(incompleteDiagramSuffixRegex, "")
+                        val partialClean = cleanAcademicText(withoutPendingTag)
+                        if (partialClean.isNotBlank()) {
+                            onPartialText(partialClean)
+                        }
+                    }
+                )
+                Result.success(parseExplanationResult(topic, rawText))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed in explainTopicStreaming attempt with key ${keyEntry.label}")
                 Result.failure(e)
             }
         }

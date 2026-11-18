@@ -83,11 +83,31 @@ data class ProviderHealthSummary(
     val activeKeyMasked: String?
 )
 
+enum class ProviderConnectionStatus(val displayLabel: String) {
+    NOT_CONFIGURED("Not Configured"),
+    SAVED_UNVERIFIED("Saved (Not Tested)"),
+    TESTING("Testing..."),
+    CONNECTED("Connected"),
+    INVALID_KEY("Invalid Key"),
+    QUOTA_EXCEEDED("Quota Exceeded"),
+    CONNECTION_FAILED("Connection Failed")
+}
+
+data class ProviderApiUiState(
+    val provider: AiProviderType,
+    val hasSavedKey: Boolean = false,
+    val maskedKey: String = "(unconfigured)",
+    val connectionStatus: ProviderConnectionStatus = ProviderConnectionStatus.NOT_CONFIGURED,
+    val statusDetail: String? = null
+)
+
 /**
  * Centralized AI API key rotation, quota tracking, health monitoring, and automatic failover coordinator.
  */
 object AiApiManager {
     private const val TAG = "AiApiManager"
+    const val SETTINGS_GEMINI_KEY_ID = "settings-gemini-key"
+    const val SETTINGS_GROQ_KEY_ID = "settings-groq-key"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -106,28 +126,66 @@ object AiApiManager {
     private val _lastFailoverEvent = MutableStateFlow<String?>(null)
     val lastFailoverEvent: StateFlow<String?> = _lastFailoverEvent.asStateFlow()
 
-    private var appContext: Context? = null
+    private val _geminiUiState = MutableStateFlow(ProviderApiUiState(AiProviderType.GEMINI))
+    val geminiUiState: StateFlow<ProviderApiUiState> = _geminiUiState.asStateFlow()
 
-    fun initialize(context: Context) {
+    private val _groqUiState = MutableStateFlow(ProviderApiUiState(AiProviderType.GROQ))
+    val groqUiState: StateFlow<ProviderApiUiState> = _groqUiState.asStateFlow()
+
+    private var appContext: Context? = null
+    private var activeOwnerId: String? = null
+
+    fun initialize(context: Context, ownerId: String? = activeOwnerId) {
         val resolvedContext = context.applicationContext ?: context
         appContext = resolvedContext
-        if (_keysList.value.isNotEmpty()) {
+        val normalizedOwner = ownerId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val ownerChanged = normalizedOwner != activeOwnerId
+        if (ownerChanged) {
+            activeOwnerId = normalizedOwner
+            QuotaMonitor.resetForTesting()
+            ProviderHealthMonitor.resetForTesting()
+        }
+        if (_keysList.value.isNotEmpty() && !ownerChanged) {
             val withFirebase = attachFirebaseAiLogicIfAvailable(_keysList.value)
             if (withFirebase != _keysList.value) {
                 withFirebase.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
                 _keysList.value = withFirebase
                 _activeKeyId.value = withFirebase.firstOrNull { it.isAvailableNow() }?.id ?: withFirebase.firstOrNull()?.id
             }
+            syncProviderUiStates()
             return
         }
-        val loaded = APIKeyManager.initialize(resolvedContext)
+        val loaded = APIKeyManager.initialize(resolvedContext, activeOwnerId)
         val combined = attachFirebaseAiLogicIfAvailable(loaded)
         combined.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
         _keysList.value = combined
         _activeKeyId.value = combined.firstOrNull { it.isAvailableNow() }?.id ?: combined.firstOrNull()?.id
+        syncProviderUiStates()
+    }
+
+    fun setActiveOwner(context: Context, ownerId: String?) {
+        val resolvedContext = context.applicationContext ?: context
+        val normalized = ownerId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        if (appContext != null && normalized == activeOwnerId && _keysList.value.isNotEmpty()) {
+            return
+        }
+        _keysList.value = emptyList()
+        _activeKeyId.value = null
+        _lastFailoverEvent.value = null
+        activeOwnerId = normalized
+        initialize(resolvedContext, normalized)
+    }
+
+    private fun hasUserConfiguredKeys(entries: List<ApiKeyEntry>): Boolean {
+        return entries.any { !FirebaseAiLogicService.isVirtualKey(it) && it.isEnabled && it.key.isNotBlank() }
     }
 
     private fun attachFirebaseAiLogicIfAvailable(existing: List<ApiKeyEntry>): List<ApiKeyEntry> {
+        // When user has configured their own Gemini or Groq API keys, route through their keys (1. Gemini -> 2. Groq).
+        // Otherwise fall back to Firebase AI Logic App Check seamlessly.
+        if (hasUserConfiguredKeys(existing)) {
+            return existing.filterNot { it.id == FirebaseAiLogicService.VIRTUAL_KEY_ID }
+        }
         if (!FirebaseAiLogicService.isAvailable(appContext)) return existing
         if (existing.any { it.id == FirebaseAiLogicService.VIRTUAL_KEY_ID }) return existing
 
@@ -136,14 +194,177 @@ object AiApiManager {
             provider = AiProviderType.GEMINI,
             key = FirebaseAiLogicService.VIRTUAL_KEY_SENTINEL,
             label = "StudyBuddy AI (Firebase App Check)",
-            priority = 1,
+            priority = 10,
             isEnabled = true
         )
         return (existing + firebaseEntry).sortedBy { it.priority }
     }
 
     private fun saveKeysToStorage() {
-        APIKeyManager.saveKeys(appContext, _keysList.value)
+        APIKeyManager.saveKeys(appContext, _keysList.value, activeOwnerId)
+    }
+
+    private fun settingsKeyIdFor(provider: AiProviderType): String = when (provider) {
+        AiProviderType.GEMINI -> SETTINGS_GEMINI_KEY_ID
+        AiProviderType.GROQ -> SETTINGS_GROQ_KEY_ID
+        else -> UUID.randomUUID().toString()
+    }
+
+    private fun defaultPriorityFor(provider: AiProviderType): Int = when (provider) {
+        AiProviderType.GEMINI -> 1
+        AiProviderType.GROQ -> 2
+        AiProviderType.OPENROUTER -> 3
+        AiProviderType.CUSTOM_OPENAI -> 4
+    }
+
+    fun saveProviderKey(provider: AiProviderType, rawKey: String): Boolean {
+        val trimmed = rawKey.trim()
+        if (trimmed.isEmpty()) return false
+        val targetId = settingsKeyIdFor(provider)
+        val priority = defaultPriorityFor(provider)
+        val label = when (provider) {
+            AiProviderType.GEMINI -> "Google Gemini API Key"
+            AiProviderType.GROQ -> "Groq API Key"
+            else -> "${provider.displayName} Key"
+        }
+        val newEntry = ApiKeyEntry(
+            id = targetId,
+            provider = provider,
+            key = trimmed,
+            label = label,
+            priority = priority,
+            isEnabled = true,
+            status = KeyHealthStatus.HEALTHY,
+            cooldownUntilTimestamp = 0L
+        )
+        QuotaMonitor.resetForTesting()
+        ProviderHealthMonitor.resetForTesting()
+        val retained = _keysList.value.filterNot {
+            FirebaseAiLogicService.isVirtualKey(it) || it.provider == provider
+        }
+        val updated = (retained + newEntry).sortedBy { it.priority }
+        updated.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+        _keysList.value = updated
+        _activeKeyId.value = updated.firstOrNull { it.isAvailableNow() }?.id ?: updated.firstOrNull()?.id
+        _lastFailoverEvent.value = null
+        saveKeysToStorage()
+        updateProviderUiState(
+            provider = provider,
+            status = ProviderConnectionStatus.SAVED_UNVERIFIED,
+            detail = "Key saved securely"
+        )
+        return true
+    }
+
+    fun removeProviderKey(provider: AiProviderType) {
+        val withoutProvider = _keysList.value.filterNot {
+            !FirebaseAiLogicService.isVirtualKey(it) && it.provider == provider
+        }
+        val combined = attachFirebaseAiLogicIfAvailable(withoutProvider)
+        combined.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
+        _keysList.value = combined
+        _activeKeyId.value = combined.firstOrNull { it.isAvailableNow() }?.id ?: combined.firstOrNull()?.id
+        saveKeysToStorage()
+        updateProviderUiState(
+            provider = provider,
+            status = ProviderConnectionStatus.NOT_CONFIGURED,
+            detail = null
+        )
+    }
+
+    fun getProviderUiState(provider: AiProviderType): ProviderApiUiState {
+        return when (provider) {
+            AiProviderType.GEMINI -> _geminiUiState.value
+            AiProviderType.GROQ -> _groqUiState.value
+            else -> buildProviderUiState(provider, ProviderConnectionStatus.NOT_CONFIGURED, null)
+        }
+    }
+
+    private fun buildProviderUiState(
+        provider: AiProviderType,
+        overrideStatus: ProviderConnectionStatus? = null,
+        detail: String? = null
+    ): ProviderApiUiState {
+        val entry = _keysList.value.firstOrNull {
+            !FirebaseAiLogicService.isVirtualKey(it) && it.provider == provider && it.key.isNotBlank()
+        }
+        if (entry == null) {
+            return ProviderApiUiState(
+                provider = provider,
+                hasSavedKey = false,
+                maskedKey = "(unconfigured)",
+                connectionStatus = if (overrideStatus == ProviderConnectionStatus.TESTING) {
+                    ProviderConnectionStatus.TESTING
+                } else {
+                    overrideStatus ?: ProviderConnectionStatus.NOT_CONFIGURED
+                },
+                statusDetail = detail
+            )
+        }
+        val inferredStatus = overrideStatus ?: when (entry.status) {
+            KeyHealthStatus.HEALTHY -> if (entry.successfulRequests > 0) {
+                ProviderConnectionStatus.CONNECTED
+            } else {
+                ProviderConnectionStatus.SAVED_UNVERIFIED
+            }
+            KeyHealthStatus.INVALID -> ProviderConnectionStatus.INVALID_KEY
+            KeyHealthStatus.RATE_LIMITED,
+            KeyHealthStatus.EXHAUSTED -> ProviderConnectionStatus.QUOTA_EXCEEDED
+            KeyHealthStatus.TEMPORARY_ERROR -> ProviderConnectionStatus.CONNECTION_FAILED
+        }
+        return ProviderApiUiState(
+            provider = provider,
+            hasSavedKey = true,
+            maskedKey = entry.maskedKey,
+            connectionStatus = inferredStatus,
+            statusDetail = detail ?: entry.lastErrorMessage
+        )
+    }
+
+    private fun syncProviderUiStates() {
+        _geminiUiState.value = buildProviderUiState(
+            AiProviderType.GEMINI,
+            overrideStatus = _geminiUiState.value.connectionStatus.takeIf {
+                it == ProviderConnectionStatus.CONNECTED ||
+                    it == ProviderConnectionStatus.INVALID_KEY ||
+                    it == ProviderConnectionStatus.QUOTA_EXCEEDED ||
+                    it == ProviderConnectionStatus.CONNECTION_FAILED
+            }?.takeIf { statusMatchesEntry(AiProviderType.GEMINI, it) }
+        )
+        _groqUiState.value = buildProviderUiState(
+            AiProviderType.GROQ,
+            overrideStatus = _groqUiState.value.connectionStatus.takeIf {
+                it == ProviderConnectionStatus.CONNECTED ||
+                    it == ProviderConnectionStatus.INVALID_KEY ||
+                    it == ProviderConnectionStatus.QUOTA_EXCEEDED ||
+                    it == ProviderConnectionStatus.CONNECTION_FAILED
+            }?.takeIf { statusMatchesEntry(AiProviderType.GROQ, it) }
+        )
+    }
+
+    private fun statusMatchesEntry(provider: AiProviderType, status: ProviderConnectionStatus): Boolean {
+        val entry = _keysList.value.firstOrNull {
+            !FirebaseAiLogicService.isVirtualKey(it) && it.provider == provider
+        } ?: return false
+        return when (entry.status) {
+            KeyHealthStatus.HEALTHY -> status == ProviderConnectionStatus.CONNECTED
+            KeyHealthStatus.INVALID -> status == ProviderConnectionStatus.INVALID_KEY
+            KeyHealthStatus.RATE_LIMITED, KeyHealthStatus.EXHAUSTED -> status == ProviderConnectionStatus.QUOTA_EXCEEDED
+            KeyHealthStatus.TEMPORARY_ERROR -> status == ProviderConnectionStatus.CONNECTION_FAILED
+        }
+    }
+
+    private fun updateProviderUiState(
+        provider: AiProviderType,
+        status: ProviderConnectionStatus,
+        detail: String?
+    ) {
+        val state = buildProviderUiState(provider, status, detail)
+        when (provider) {
+            AiProviderType.GEMINI -> _geminiUiState.value = state
+            AiProviderType.GROQ -> _groqUiState.value = state
+            else -> {}
+        }
     }
 
     fun addApiKey(provider: AiProviderType, key: String, label: String, priority: Int = 1): Boolean {
@@ -156,24 +377,31 @@ object AiApiManager {
             priority = priority
         )
         QuotaMonitor.ensureTracked(newEntry.id, newEntry.provider)
-        _keysList.value = (_keysList.value + newEntry).sortedBy { it.priority }
+        val combined = attachFirebaseAiLogicIfAvailable((_keysList.value + newEntry).sortedBy { it.priority })
+        _keysList.value = combined
         saveKeysToStorage()
+        syncProviderUiStates()
         return true
     }
 
     fun removeApiKey(id: String) {
-        _keysList.value = _keysList.value.filter { it.id != id }
+        val remaining = _keysList.value.filter { it.id != id }
+        _keysList.value = attachFirebaseAiLogicIfAvailable(remaining)
         if (_activeKeyId.value == id) {
             _activeKeyId.value = _keysList.value.firstOrNull { it.isAvailableNow() }?.id
         }
         saveKeysToStorage()
+        syncProviderUiStates()
     }
 
     fun toggleKeyEnabled(id: String, enabled: Boolean) {
-        _keysList.value = _keysList.value.map {
-            if (it.id == id) it.copy(isEnabled = enabled) else it
-        }
+        _keysList.value = attachFirebaseAiLogicIfAvailable(
+            _keysList.value.map {
+                if (it.id == id) it.copy(isEnabled = enabled) else it
+            }
+        )
         saveKeysToStorage()
+        syncProviderUiStates()
     }
 
     fun updateKeyPriority(id: String, priority: Int) {
@@ -181,6 +409,7 @@ object AiApiManager {
             if (it.id == id) it.copy(priority = priority) else it
         }.sortedBy { it.priority }
         saveKeysToStorage()
+        syncProviderUiStates()
     }
 
     /**
@@ -242,6 +471,7 @@ object AiApiManager {
         ).coerceAtMost(12)
 
         val triedKeyIds = mutableSetOf<String>()
+        val providerFailureSummaries = linkedMapOf<AiProviderType, String>()
         var attempts = 0
         var lastError: Throwable? = null
         val sensitiveKeys = allConfiguredKeys.mapNotNull { it.key.takeIf { k -> k.isNotBlank() } }
@@ -251,8 +481,7 @@ object AiApiManager {
                 tier = tier,
                 capability = capability,
                 excludedKeyIds = triedKeyIds
-            ) ?: if (triedKeyIds.isNotEmpty()) {
-                // Allow a second pass only if a transient key's backoff has recovered and we still have attempts
+            ) ?: if (triedKeyIds.isNotEmpty() && triedKeyIds.size < activeCandidateCount) {
                 getNextAvailableKey(tier = tier, capability = capability, excludedKeyIds = emptySet())
             } else {
                 null
@@ -260,13 +489,19 @@ object AiApiManager {
 
             if (keyEntry == null) {
                 val hasAnyNonEmptyKey = allConfiguredKeys.any { it.isEnabled && it.key.isNotBlank() }
-                val errorMsg = if (!hasAnyNonEmptyKey) {
-                    "AI service credentials are not configured for this build."
-                } else {
-                    "AI service is temporarily busy or rate-limited. Please try again shortly."
+                val combinedFailure = providerFailureSummaries.values.joinToString(" | ")
+                val errorMsg = when {
+                    combinedFailure.isNotBlank() -> combinedFailure
+                    !hasAnyNonEmptyKey -> "AI API keys are not configured. Add a Gemini or Groq key in Settings."
+                    else -> "All configured AI providers are temporarily busy or rate-limited. Please try again shortly."
                 }
                 _lastFailoverEvent.value = errorMsg
-                return@withContext Result.failure(lastError ?: IllegalStateException(errorMsg))
+                val finalErr = if (combinedFailure.isNotBlank()) {
+                    IOException(combinedFailure)
+                } else {
+                    lastError ?: IllegalStateException(errorMsg)
+                }
+                return@withContext Result.failure(finalErr)
             }
 
             triedKeyIds.add(keyEntry.id)
@@ -293,6 +528,8 @@ object AiApiManager {
                         isFirebaseAppCheckRoute = isVirtualRoute
                     )
                     lastError = IllegalStateException(classification.safeMessage)
+                    val cleanReason = RequestRetryService.sanitizeErrorMessage(error?.message ?: classification.safeMessage, sensitiveKeys)
+                    providerFailureSummaries[keyEntry.provider] = "${keyEntry.provider.displayName}: ${cleanReason.ifBlank { classification.safeMessage }}"
                     handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
                     val hasUntriedBackupKey = allConfiguredKeys.any {
                         it.id !in triedKeyIds && it.isEnabled && it.key.isNotBlank() && it.isAvailableNow()
@@ -300,7 +537,7 @@ object AiApiManager {
                     if (!classification.shouldRetryWithNextKey ||
                         (isVirtualRoute && classification.kind == RetryableErrorKind.INVALID_KEY_401_403 && !hasUntriedBackupKey)
                     ) {
-                        return@withContext Result.failure(lastError!!)
+                        return@withContext Result.failure(IOException(providerFailureSummaries.values.joinToString(" | ").ifBlank { classification.safeMessage }))
                     }
                     RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)
                 }
@@ -317,6 +554,8 @@ object AiApiManager {
                     isFirebaseAppCheckRoute = isVirtualRoute
                 )
                 lastError = IllegalStateException(classification.safeMessage)
+                val cleanReason = RequestRetryService.sanitizeErrorMessage(e.message ?: classification.safeMessage, sensitiveKeys)
+                providerFailureSummaries[keyEntry.provider] = "${keyEntry.provider.displayName}: ${cleanReason.ifBlank { classification.safeMessage }}"
                 handleExecutionFailure(keyEntry.id, keyEntry.provider, classification)
                 val hasUntriedBackupKey = allConfiguredKeys.any {
                     it.id !in triedKeyIds && it.isEnabled && it.key.isNotBlank() && it.isAvailableNow()
@@ -324,7 +563,7 @@ object AiApiManager {
                 if (!classification.shouldRetryWithNextKey ||
                     (isVirtualRoute && classification.kind == RetryableErrorKind.INVALID_KEY_401_403 && !hasUntriedBackupKey)
                 ) {
-                    return@withContext Result.failure(lastError!!)
+                    return@withContext Result.failure(IOException(providerFailureSummaries.values.joinToString(" | ").ifBlank { classification.safeMessage }))
                 }
                 RequestRetryService.waitBeforeRetry(classification.backoffDelayMs)
             }
@@ -332,7 +571,11 @@ object AiApiManager {
             attempts++
         }
 
-        val finalSafeMessage = RequestRetryService.sanitizeErrorMessage(lastError?.message, sensitiveKeys)
+        val combinedFailure = providerFailureSummaries.values.joinToString(" | ")
+        val finalSafeMessage = RequestRetryService.sanitizeErrorMessage(
+            combinedFailure.ifBlank { lastError?.message },
+            sensitiveKeys
+        )
         Result.failure(IOException(finalSafeMessage.ifBlank { "Unable to reach AI providers after $attempts attempts." }))
     }
 
@@ -361,6 +604,7 @@ object AiApiManager {
         if (updated != current) {
             updated.forEach { QuotaMonitor.ensureTracked(it.id, it.provider) }
             _keysList.value = updated
+            syncProviderUiStates()
         }
     }
 
@@ -420,6 +664,12 @@ object AiApiManager {
             } else it
         }
         saveKeysToStorage()
+        if (provider == AiProviderType.GEMINI || provider == AiProviderType.GROQ) {
+            val savedEntry = _keysList.value.firstOrNull { !FirebaseAiLogicService.isVirtualKey(it) && it.provider == provider }
+            if (savedEntry != null) {
+                updateProviderUiState(provider, ProviderConnectionStatus.CONNECTED, "Connected (${latencyMs}ms)")
+            }
+        }
     }
 
     private suspend fun handleExecutionFailure(
@@ -499,6 +749,103 @@ object AiApiManager {
             }
         }
         saveKeysToStorage()
+        if (provider == AiProviderType.GEMINI || provider == AiProviderType.GROQ) {
+            val savedEntry = _keysList.value.firstOrNull { it.id == keyId && !FirebaseAiLogicService.isVirtualKey(it) }
+            if (savedEntry != null) {
+                val mappedStatus = mapClassificationToUiStatus(classification.kind)
+                updateProviderUiState(provider, mappedStatus, classification.safeMessage)
+            }
+        }
+    }
+
+    internal fun mapClassificationToUiStatus(kind: RetryableErrorKind): ProviderConnectionStatus {
+        return when (kind) {
+            RetryableErrorKind.INVALID_KEY_401_403 -> ProviderConnectionStatus.INVALID_KEY
+            RetryableErrorKind.RATE_LIMIT_429,
+            RetryableErrorKind.QUOTA_EXHAUSTED -> ProviderConnectionStatus.QUOTA_EXCEEDED
+            RetryableErrorKind.SERVER_OUTAGE_5XX,
+            RetryableErrorKind.TRANSIENT_NETWORK,
+            RetryableErrorKind.NON_RETRYABLE_CLIENT_ERROR -> ProviderConnectionStatus.CONNECTION_FAILED
+        }
+    }
+
+    /**
+     * Live connection test for Gemini or Groq (uses candidate key if provided, otherwise saved key).
+     * Never logs or exposes raw keys.
+     */
+    suspend fun testProviderConnection(
+        provider: AiProviderType,
+        candidateRawKey: String? = null
+    ): Result<ProviderConnectionStatus> = withContext(Dispatchers.IO) {
+        val savedEntry = _keysList.value.firstOrNull {
+            !FirebaseAiLogicService.isVirtualKey(it) && it.provider == provider
+        }
+        val effectiveRawKey = candidateRawKey?.trim()?.takeIf { it.isNotBlank() }
+            ?: savedEntry?.key?.trim().orEmpty()
+
+        if (effectiveRawKey.isBlank()) {
+            updateProviderUiState(
+                provider = provider,
+                status = ProviderConnectionStatus.NOT_CONFIGURED,
+                detail = "Enter an API key first."
+            )
+            return@withContext Result.failure(IOException("Enter a ${provider.displayName} API key first."))
+        }
+
+        val isTestingSavedEntry = savedEntry != null && savedEntry.key == effectiveRawKey
+        val probeEntry = (savedEntry ?: ApiKeyEntry(
+            id = settingsKeyIdFor(provider),
+            provider = provider,
+            key = effectiveRawKey,
+            label = "${provider.displayName} API Key",
+            priority = defaultPriorityFor(provider)
+        )).copy(key = effectiveRawKey)
+
+        updateProviderUiState(provider, ProviderConnectionStatus.TESTING, "Checking connection...")
+        val startTime = System.currentTimeMillis()
+        try {
+            val output = AIProviderManager.executeWithKey(
+                keyEntry = probeEntry,
+                request = AiExecutionRequest(
+                    prompt = "Reply with OK.",
+                    capability = AiTaskCapability.TEXT_CHAT,
+                    tier = StudyBuddyModelTier.FREE
+                )
+            )
+            val latency = System.currentTimeMillis() - startTime
+            if (output.isNotBlank()) {
+                if (isTestingSavedEntry) {
+                    recordRequestSuccess(probeEntry.id, provider, latency)
+                }
+                updateProviderUiState(
+                    provider = provider,
+                    status = ProviderConnectionStatus.CONNECTED,
+                    detail = "Connected (${latency}ms)"
+                )
+                Result.success(ProviderConnectionStatus.CONNECTED)
+            } else {
+                updateProviderUiState(
+                    provider = provider,
+                    status = ProviderConnectionStatus.CONNECTION_FAILED,
+                    detail = "Empty response from provider."
+                )
+                Result.failure(IOException("Empty validation response from ${provider.displayName}."))
+            }
+        } catch (e: Exception) {
+            val classification = RequestRetryService.classifyFailure(
+                httpCode = (e as? ProviderHttpException)?.httpCode,
+                error = e,
+                sensitiveKeys = listOf(effectiveRawKey),
+                isFirebaseAppCheckRoute = false
+            )
+            if (isTestingSavedEntry) {
+                handleExecutionFailure(probeEntry.id, provider, classification)
+            }
+            val uiStatus = mapClassificationToUiStatus(classification.kind)
+            updateProviderUiState(provider, uiStatus, classification.safeMessage)
+            Log.w(TAG, "Connection test failed for ${provider.displayName}: ${uiStatus.displayLabel}")
+            Result.failure(IOException("${uiStatus.displayLabel}: ${classification.safeMessage}"))
+        }
     }
 
     /**
@@ -542,5 +889,6 @@ object AiApiManager {
         _keysList.value = seedKeys
         _activeKeyId.value = seedKeys.firstOrNull()?.id
         _lastFailoverEvent.value = null
+        syncProviderUiStates()
     }
 }

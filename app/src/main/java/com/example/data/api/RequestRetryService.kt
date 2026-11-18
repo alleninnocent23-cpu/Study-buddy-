@@ -40,9 +40,10 @@ object RequestRetryService {
                 msg = msg.replace(secret, APIKeyManager.maskKey(secret))
             }
         }
-        // Strip accidental ?key=... query parameter values
+        // Strip accidental ?key=... query parameter values and common API key tokens
         msg = msg.replace(Regex("([?&]key=)[^&\\s]+", RegexOption.IGNORE_CASE), "$1***")
         msg = msg.replace(Regex("(Bearer\\s+)[A-Za-z0-9._-]+", RegexOption.IGNORE_CASE), "$1***")
+        msg = msg.replace(Regex("\\b(AIzaSy[A-Za-z0-9_-]{8,}|AQ\\.[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9_-]{8,})\\b"), "***")
         return msg.take(360)
     }
 
@@ -62,7 +63,7 @@ object RequestRetryService {
 
         val kind = when {
             effectiveCode == 429 || lower.contains("429") || lower.contains("rate limit") -> {
-                if (lower.contains("daily") || lower.contains("billing") || lower.contains("exceeded your current quota")) {
+                if (lower.contains("daily") || lower.contains("billing") || lower.contains("exceeded your current quota") || lower.contains("quota")) {
                     RetryableErrorKind.QUOTA_EXHAUSTED
                 } else {
                     RetryableErrorKind.RATE_LIMIT_429
@@ -78,6 +79,9 @@ object RequestRetryService {
                 lower.contains("recaptcha") ||
                 lower.contains("api_key_invalid") ||
                 lower.contains("api key not valid") ||
+                lower.contains("invalid api key") ||
+                lower.contains("invalid_api_key") ||
+                lower.contains("invalid authentication") ||
                 lower.contains("unauthorized") ->
                 RetryableErrorKind.INVALID_KEY_401_403
             effectiveCode in listOf(408, 500, 502, 503, 504) ||

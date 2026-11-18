@@ -220,10 +220,35 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
     val apiKeyInput = MutableStateFlow("")
     val apiKeyStatus = MutableStateFlow<String?>(null)
 
+    val geminiApiState: StateFlow<com.example.data.api.ProviderApiUiState> =
+        com.example.data.api.AiApiManager.geminiUiState
+    val groqApiState: StateFlow<com.example.data.api.ProviderApiUiState> =
+        com.example.data.api.AiApiManager.groqUiState
+
     fun selectModelTier(tier: com.example.data.api.StudyBuddyModelTier) {
         selectedModelTier.value = tier
         GeminiClient.activeModelTier = tier
         modelTierPrefs.edit().putString("selected_model_tier", tier.id).apply()
+    }
+
+    fun saveProviderApiKey(provider: com.example.data.api.AiProviderType, rawKey: String): Boolean {
+        com.example.data.api.AiApiManager.initialize(getApplication(), _currentUser.value?.email)
+        return com.example.data.api.AiApiManager.saveProviderKey(provider, rawKey)
+    }
+
+    fun removeProviderApiKey(provider: com.example.data.api.AiProviderType) {
+        com.example.data.api.AiApiManager.initialize(getApplication(), _currentUser.value?.email)
+        com.example.data.api.AiApiManager.removeProviderKey(provider)
+    }
+
+    fun testProviderApiConnection(
+        provider: com.example.data.api.AiProviderType,
+        draftRawKey: String? = null
+    ) {
+        viewModelScope.launch {
+            com.example.data.api.AiApiManager.initialize(getApplication(), _currentUser.value?.email)
+            com.example.data.api.AiApiManager.testProviderConnection(provider, draftRawKey)
+        }
     }
 
     init {
@@ -249,6 +274,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 _currentUser.value = resolvedUser
                 _currentUserId.value = resolvedUser.id
+                com.example.data.api.AiApiManager.setActiveOwner(getApplication(), resolvedUser.email)
                 if (_currentScreen.value == AppScreen.WELCOME || _currentScreen.value == AppScreen.AUTH) {
                     _currentScreen.value = AppScreen.TUTOR
                 }
@@ -363,6 +389,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     _currentUser.value = user
                     _currentUserId.value = user.id
+                    com.example.data.api.AiApiManager.setActiveOwner(getApplication(), user.email)
                     authState.value = state.copy(isLoading = false)
                     navigateTo(AppScreen.TUTOR)
                 }.onFailure { e ->
@@ -389,6 +416,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
             authRepository.markLocalSessionActive(demoUser.email)
             _currentUser.value = demoUser
             _currentUserId.value = demoUser.id
+            com.example.data.api.AiApiManager.setActiveOwner(getApplication(), demoUser.email)
             navigateTo(AppScreen.TUTOR)
         }
     }
@@ -424,6 +452,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     _currentUser.value = user
                     _currentUserId.value = user.id
+                    com.example.data.api.AiApiManager.setActiveOwner(getApplication(), user.email)
                     runCatching {
                         studyNotificationScheduler.sendWelcomeEmailNotification(user.name, user.email)
                         studyNotificationScheduler.scheduleBiHourlyStudyReminders()
@@ -467,6 +496,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
         voiceManager.stopSpeaking()
         authRepository.signOut()
         _currentUser.value = null
+        com.example.data.api.AiApiManager.setActiveOwner(getApplication(), null)
         authState.value = authState.value.copy(isLoading = false, error = null)
         viewModelScope.launch {
             authRepository.signOutAndClearCredentials()
@@ -594,6 +624,9 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
 
             var effectivePrompt = promptText
             val activeTier = selectedModelTier.value
+            val streamingMessageId = java.util.UUID.randomUUID().toString()
+            var hasInsertedStreamingMessage = false
+
             val result: Result<ExplanationResult> = if (isVoiceNote && voiceAudioFilePath != null && java.io.File(voiceAudioFilePath).exists() && (promptText.isBlank() || promptText.startsWith("Voice note"))) {
                 // Multimodal audio recognition & response through GeminiClient
                 val audioFile = java.io.File(voiceAudioFilePath)
@@ -614,12 +647,34 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     )
                     Result.success(explanation)
                 } else {
-                    GeminiClient.explainTopic(
+                    GeminiClient.explainTopicStreaming(
                         topic = effectivePrompt,
                         subject = state.selectedSubject,
                         gradeLevel = grade,
                         conversationHistory = historyList,
-                        modelTier = activeTier
+                        modelTier = activeTier,
+                        onPartialText = { partialRaw ->
+                            val partialClean = SmartSuggestionGenerator.cleanResponseText(partialRaw)
+                            if (partialClean.isNotBlank()) {
+                                val currentMsgs = tutorState.value.messages
+                                val updated = if (hasInsertedStreamingMessage) {
+                                    currentMsgs.map { msg ->
+                                        if (msg.id == streamingMessageId) msg.copy(text = partialClean) else msg
+                                    }
+                                } else {
+                                    hasInsertedStreamingMessage = true
+                                    currentMsgs + ChatMessage(
+                                        id = streamingMessageId,
+                                        sender = MessageSender.ASSISTANT,
+                                        text = partialClean
+                                    )
+                                }
+                                tutorState.value = tutorState.value.copy(
+                                    isLoading = false,
+                                    messages = updated
+                                )
+                            }
+                        }
                     )
                 }
             } else if (image != null) {
@@ -630,12 +685,34 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     modelTier = activeTier
                 )
             } else {
-                GeminiClient.explainTopic(
+                GeminiClient.explainTopicStreaming(
                     topic = promptText,
                     subject = state.selectedSubject,
                     gradeLevel = grade,
                     conversationHistory = historyList,
-                    modelTier = activeTier
+                    modelTier = activeTier,
+                    onPartialText = { partialRaw ->
+                        val partialClean = SmartSuggestionGenerator.cleanResponseText(partialRaw)
+                        if (partialClean.isNotBlank()) {
+                            val currentMsgs = tutorState.value.messages
+                            val updated = if (hasInsertedStreamingMessage) {
+                                currentMsgs.map { msg ->
+                                    if (msg.id == streamingMessageId) msg.copy(text = partialClean) else msg
+                                }
+                            } else {
+                                hasInsertedStreamingMessage = true
+                                currentMsgs + ChatMessage(
+                                    id = streamingMessageId,
+                                    sender = MessageSender.ASSISTANT,
+                                    text = partialClean
+                                )
+                            }
+                            tutorState.value = tutorState.value.copy(
+                                isLoading = false,
+                                messages = updated
+                            )
+                        }
+                    }
                 )
             }
 
@@ -673,6 +750,7 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 } else null
 
                 val assistantMsg = ChatMessage(
+                    id = streamingMessageId,
                     sender = MessageSender.ASSISTANT,
                     text = cleanedText,
                     diagramType = explanation.diagramType,
@@ -682,10 +760,17 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                     generatedAiImageUrl = generatedAiImageUrl,
                     searchImages = webImages
                 )
+                val finalMessages = if (hasInsertedStreamingMessage) {
+                    tutorState.value.messages.map { msg ->
+                        if (msg.id == streamingMessageId) assistantMsg else msg
+                    }
+                } else {
+                    tutorState.value.messages + assistantMsg
+                }
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
                     currentExplanation = explanation.copy(explanationText = cleanedText),
-                    messages = tutorState.value.messages + assistantMsg
+                    messages = finalMessages
                 )
                 clearAttachment()
 
@@ -713,19 +798,25 @@ class StudyBuddyViewModel(application: Application) : AndroidViewModel(applicati
                 val hasGuidance = rawErrMsg.contains("retry", ignoreCase = true) ||
                     rawErrMsg.contains("try again", ignoreCase = true) ||
                     rawErrMsg.contains("vpn", ignoreCase = true) ||
-                    rawErrMsg.contains("install", ignoreCase = true)
+                    rawErrMsg.contains("install", ignoreCase = true) ||
+                    rawErrMsg.contains("settings", ignoreCase = true)
                 val formattedBubbleText = if (hasGuidance) {
                     "I couldn't generate an answer right now: $rawErrMsg"
                 } else {
-                    "I couldn't generate an answer right now: $rawErrMsg\n\nPlease check your internet connection or try again in a moment."
+                    "I couldn't generate an answer right now: $rawErrMsg\n\nPlease check your API keys in Settings or try again in a moment."
                 }
                 val assistantErrorMsg = ChatMessage(
                     sender = MessageSender.ASSISTANT,
                     text = formattedBubbleText
                 )
+                val cleanMsgs = if (hasInsertedStreamingMessage) {
+                    tutorState.value.messages.filterNot { it.id == streamingMessageId }
+                } else {
+                    tutorState.value.messages
+                }
                 tutorState.value = tutorState.value.copy(
                     isLoading = false,
-                    messages = tutorState.value.messages + assistantErrorMsg,
+                    messages = cleanMsgs + assistantErrorMsg,
                     error = rawErrMsg
                 )
                 clearAttachment()

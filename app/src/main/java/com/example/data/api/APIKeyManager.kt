@@ -35,14 +35,28 @@ object APIKeyManager {
 
     private const val PREF_LEGACY_PURGE_V2 = "purged_legacy_seeded_keys_v2"
     private var prefs: SharedPreferences? = null
+    private var activeOwnerId: String? = null
 
-    fun initialize(context: Context): List<ApiKeyEntry> {
+    private fun resolveStorageKey(ownerId: String?): String {
+        val normalized = ownerId?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank() || normalized == "default" || normalized == "guest") {
+            return KEY_ENCRYPTED_PAYLOAD
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(normalized.toByteArray(StandardCharsets.UTF_8))
+        val hex = digest.joinToString("") { "%02x".format(it) }.take(24)
+        return "${KEY_ENCRYPTED_PAYLOAD}_$hex"
+    }
+
+    fun initialize(context: Context, ownerId: String? = null): List<ApiKeyEntry> {
         val appContext = context.applicationContext ?: context
+        activeOwnerId = ownerId
+        val storageKey = resolveStorageKey(ownerId)
         val currentPrefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs = currentPrefs
 
-        // 1. Try loading encrypted v2 payload
-        val encrypted = currentPrefs.getString(KEY_ENCRYPTED_PAYLOAD, null)
+        // 1. Try loading encrypted v2 payload for the authorized owner
+        val encrypted = currentPrefs.getString(storageKey, null)
         if (!encrypted.isNullOrBlank()) {
             val decrypted = decryptString(appContext, encrypted)
             var parsed = parseKeysJson(decrypted)
@@ -51,7 +65,7 @@ object APIKeyManager {
                     it.id == "gemini-primary-built-in" || it.status == KeyHealthStatus.INVALID
                 }
                 currentPrefs.edit().putBoolean(PREF_LEGACY_PURGE_V2, true).commit()
-                saveKeys(appContext, parsed)
+                saveKeys(appContext, parsed, ownerId)
             }
             if (parsed.isNotEmpty()) {
                 return mergeBuildConfigDefaultIfMissing(parsed)
@@ -60,35 +74,38 @@ object APIKeyManager {
             currentPrefs.edit().putBoolean(PREF_LEGACY_PURGE_V2, true).commit()
         }
 
-        // 2. Migrate legacy plain JSON if present (filtering out invalid/built-in placeholders), then erase
-        val legacyPrefs = appContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
-        val legacyJson = legacyPrefs.getString(LEGACY_KEY_JSON, null)
-        if (!legacyJson.isNullOrBlank()) {
-            val migrated = parseKeysJson(legacyJson).filterNot {
-                it.id == "gemini-primary-built-in" || it.status == KeyHealthStatus.INVALID
-            }
-            legacyPrefs.edit().remove(LEGACY_KEY_JSON).apply()
-            if (migrated.isNotEmpty()) {
-                val merged = mergeBuildConfigDefaultIfMissing(migrated)
-                saveKeys(appContext, merged)
-                return merged
+        // 2. Migrate legacy plain JSON only for default partition if present, then erase
+        if (storageKey == KEY_ENCRYPTED_PAYLOAD) {
+            val legacyPrefs = appContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            val legacyJson = legacyPrefs.getString(LEGACY_KEY_JSON, null)
+            if (!legacyJson.isNullOrBlank()) {
+                val migrated = parseKeysJson(legacyJson).filterNot {
+                    it.id == "gemini-primary-built-in" || it.status == KeyHealthStatus.INVALID
+                }
+                legacyPrefs.edit().remove(LEGACY_KEY_JSON).apply()
+                if (migrated.isNotEmpty()) {
+                    val merged = mergeBuildConfigDefaultIfMissing(migrated)
+                    saveKeys(appContext, merged, ownerId)
+                    return merged
+                }
             }
         }
 
         val seeded = seedDefaultKeys()
-        saveKeys(appContext, seeded)
+        saveKeys(appContext, seeded, ownerId)
         return seeded
     }
 
-    fun saveKeys(context: Context?, entries: List<ApiKeyEntry>) {
+    fun saveKeys(context: Context?, entries: List<ApiKeyEntry>, ownerId: String? = activeOwnerId) {
         val appContext = context?.applicationContext ?: context
         val p = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) ?: prefs ?: return
         prefs = p
+        val storageKey = resolveStorageKey(ownerId)
         try {
             val persistable = entries.filterNot { FirebaseAiLogicService.isVirtualKey(it) }
             val json = serializeKeysJson(persistable)
             val encrypted = encryptString(appContext, json)
-            p.edit().putString(KEY_ENCRYPTED_PAYLOAD, encrypted).apply()
+            p.edit().putString(storageKey, encrypted).commit()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist secure key configuration")
         }

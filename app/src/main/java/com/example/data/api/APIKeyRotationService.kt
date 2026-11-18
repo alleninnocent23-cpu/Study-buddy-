@@ -35,26 +35,12 @@ object APIKeyRotationService {
         excludedKeyIds: Set<String> = emptySet(),
         nowMs: Long = System.currentTimeMillis()
     ): List<ApiKeyEntry> {
-        val preferredProviders = when (tier) {
-            StudyBuddyModelTier.FREE -> listOf(
-                AiProviderType.GROQ,
-                AiProviderType.GEMINI,
-                AiProviderType.OPENROUTER,
-                AiProviderType.CUSTOM_OPENAI
-            )
-            StudyBuddyModelTier.PLUS -> listOf(
-                AiProviderType.GEMINI,
-                AiProviderType.OPENROUTER,
-                AiProviderType.GROQ,
-                AiProviderType.CUSTOM_OPENAI
-            )
-            StudyBuddyModelTier.MAX -> listOf(
-                AiProviderType.GEMINI,
-                AiProviderType.OPENROUTER,
-                AiProviderType.CUSTOM_OPENAI,
-                AiProviderType.GROQ
-            )
-        }
+        val preferredProviders = listOf(
+            AiProviderType.GEMINI,
+            AiProviderType.GROQ,
+            AiProviderType.OPENROUTER,
+            AiProviderType.CUSTOM_OPENAI
+        )
 
         // For Vision/Audio capabilities, ensure Gemini (and vision-capable OpenRouter/OpenAI) take precedence
         val orderedProviders = if (capability == AiTaskCapability.VISION_OCR || capability == AiTaskCapability.AUDIO_TRANSCRIPTION) {
@@ -78,11 +64,11 @@ object APIKeyRotationService {
             compareBy<ApiKeyEntry>(
                 { if (it.status == KeyHealthStatus.HEALTHY) 0 else 1 },
                 { it.priority },
-                { if (FirebaseAiLogicService.isVirtualKey(it)) 0 else 1 },
                 {
                     val idx = orderedProviders.indexOf(it.provider)
                     if (idx >= 0) idx else 99
                 },
+                { if (FirebaseAiLogicService.isVirtualKey(it)) 1 else 0 },
                 { QuotaMonitor.getSnapshot(it.id)?.requestsLastMinute ?: 0 },
                 { it.lastSuccessTimestamp }
             )

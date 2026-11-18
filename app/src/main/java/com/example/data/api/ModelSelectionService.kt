@@ -13,18 +13,18 @@ object ModelSelectionService {
     ): ResolvedModelConfig {
         val (primaryModel, fallbackModel) = when (tier) {
             StudyBuddyModelTier.FREE -> when (provider) {
-                AiProviderType.GEMINI -> "gemini-2.5-flash" to null
+                AiProviderType.GEMINI -> "gemini-2.5-flash" to "gemini-2.5-flash-lite"
                 AiProviderType.OPENROUTER -> when (capability) {
                     AiTaskCapability.VISION_OCR -> "google/gemini-2.0-flash-exp:free" to "google/gemini-2.5-flash"
                     else -> "google/gemini-2.0-flash-exp:free" to "meta-llama/llama-3.1-8b-instruct:free"
                 }
-                AiProviderType.GROQ -> "llama-3.1-8b-instant" to "llama-3.3-70b-versatile"
+                AiProviderType.GROQ -> "openai/gpt-oss-120b" to "llama-3.1-8b-instant"
                 AiProviderType.CUSTOM_OPENAI -> "gpt-4o-mini" to null
             }
             StudyBuddyModelTier.PLUS -> when (provider) {
                 AiProviderType.GEMINI -> "gemini-2.5-flash" to "gemini-2.0-flash"
                 AiProviderType.OPENROUTER -> "google/gemini-2.5-flash" to "openai/gpt-4o-mini"
-                AiProviderType.GROQ -> "llama-3.3-70b-versatile" to "llama-3.1-8b-instant"
+                AiProviderType.GROQ -> "openai/gpt-oss-120b" to "llama-3.3-70b-versatile"
                 AiProviderType.CUSTOM_OPENAI -> "gpt-4o" to "gpt-4o-mini"
             }
             StudyBuddyModelTier.MAX -> when (provider) {
@@ -34,7 +34,7 @@ object ModelSelectionService {
                     else -> "gemini-2.5-pro" to "gemini-2.5-flash"
                 }
                 AiProviderType.OPENROUTER -> "google/gemini-2.5-pro" to "google/gemini-2.5-flash"
-                AiProviderType.GROQ -> "llama-3.3-70b-versatile" to null
+                AiProviderType.GROQ -> "openai/gpt-oss-120b" to "llama-3.3-70b-versatile"
                 AiProviderType.CUSTOM_OPENAI -> "gpt-4.1" to "gpt-4o"
             }
         }
